@@ -1,29 +1,23 @@
 from PySide6.QtWidgets import (
     QDialog,
+    QGridLayout,
     QLabel,
     QLineEdit,
-    QTextEdit,
     QPushButton,
-    QGridLayout,
-    QHBoxLayout,
+    QTextEdit,
     QVBoxLayout,
-    QMessageBox
+    QMessageBox,
 )
 
 from models.cari_model import CariModel
 
 
 class NewCariDialog(QDialog):
-
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
 
         self.setWindowTitle("Yeni Cari Kartı")
         self.resize(700, 500)
-
-        layout = QVBoxLayout(self)
-
-        grid = QGridLayout()
 
         self.txt_kod = QLineEdit()
         self.txt_unvan = QLineEdit()
@@ -34,85 +28,96 @@ class NewCariDialog(QDialog):
         self.txt_vergi_no = QLineEdit()
         self.txt_ulke = QLineEdit()
         self.txt_sehir = QLineEdit()
+        self.txt_ilce = QLineEdit()
         self.txt_adres = QTextEdit()
-
-        grid.addWidget(QLabel("Cari Kodu"), 0, 0)
-        grid.addWidget(self.txt_kod, 0, 1)
-
-        grid.addWidget(QLabel("Firma Ünvanı"), 1, 0)
-        grid.addWidget(self.txt_unvan, 1, 1)
-
-        grid.addWidget(QLabel("Yetkili"), 2, 0)
-        grid.addWidget(self.txt_yetkili, 2, 1)
-
-        grid.addWidget(QLabel("Telefon"), 3, 0)
-        grid.addWidget(self.txt_telefon, 3, 1)
-
-        grid.addWidget(QLabel("E-Posta"), 4, 0)
-        grid.addWidget(self.txt_email, 4, 1)
-
-        grid.addWidget(QLabel("Vergi Dairesi"), 5, 0)
-        grid.addWidget(self.txt_vergi_dairesi, 5, 1)
-
-        grid.addWidget(QLabel("Vergi No"), 6, 0)
-        grid.addWidget(self.txt_vergi_no, 6, 1)
-
-        grid.addWidget(QLabel("Ülke"), 7, 0)
-        grid.addWidget(self.txt_ulke, 7, 1)
-
-        grid.addWidget(QLabel("Şehir"), 8, 0)
-        grid.addWidget(self.txt_sehir, 8, 1)
-
-        grid.addWidget(QLabel("Adres"), 9, 0)
-        grid.addWidget(self.txt_adres, 9, 1)
-
-        layout.addLayout(grid)
-
-        buttons = QHBoxLayout()
+        self.txt_adres.setMinimumHeight(120)
 
         self.btn_kaydet = QPushButton("💾 Kaydet")
         self.btn_iptal = QPushButton("İptal")
 
-        buttons.addStretch()
-        buttons.addWidget(self.btn_kaydet)
-        buttons.addWidget(self.btn_iptal)
+        self.btn_kaydet.clicked.connect(self._on_save)
+        self.btn_iptal.clicked.connect(self.reject)
 
-        layout.addLayout(buttons)
+        grid = QGridLayout()
+        grid.setContentsMargins(20, 20, 20, 20)
+        grid.setSpacing(12)
 
-        self.btn_iptal.clicked.connect(self.close)
-        self.btn_kaydet.clicked.connect(self.kaydet)
+        fields = [
+            ("Cari Kodu", self.txt_kod),
+            ("Firma Ünvanı", self.txt_unvan),
+            ("Yetkili", self.txt_yetkili),
+            ("Telefon", self.txt_telefon),
+            ("E-Posta", self.txt_email),
+            ("Vergi Dairesi", self.txt_vergi_dairesi),
+            ("Vergi No", self.txt_vergi_no),
+            ("Ülke", self.txt_ulke),
+            ("Şehir", self.txt_sehir),
+            ("İlçe", self.txt_ilce),
+        ]
 
-    def kaydet(self):
+        for index, (label_text, widget) in enumerate(fields):
+            label = QLabel(label_text)
+            grid.addWidget(label, index, 0)
+            grid.addWidget(widget, index, 1)
+
+        grid.addWidget(QLabel("Adres"), len(fields), 0)
+        grid.addWidget(self.txt_adres, len(fields), 1, 1, 1)
+
+        button_layout = QVBoxLayout()
+        button_layout.addStretch()
+        button_layout.addWidget(self.btn_kaydet)
+        button_layout.addWidget(self.btn_iptal)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.addLayout(grid)
+        main_layout.addLayout(button_layout)
+
+    def _on_save(self):
+        cari_kodu = self.txt_kod.text().strip()
+        firma_unvani = self.txt_unvan.text().strip()
+        yetkili = self.txt_yetkili.text().strip()
+        telefon = self.txt_telefon.text().strip()
+        email = self.txt_email.text().strip()
+        vergi_dairesi = self.txt_vergi_dairesi.text().strip()
+        vergi_no = self.txt_vergi_no.text().strip()
+        ulke = self.txt_ulke.text().strip()
+        sehir = self.txt_sehir.text().strip()
+        ilce = self.txt_ilce.text().strip()
+        adres = self.txt_adres.toPlainText().strip()
+
+        required_fields = [
+            ("Cari Kodu", cari_kodu),
+            ("Firma Ünvanı", firma_unvani),
+            ("Yetkili", yetkili),
+            ("E-Posta", email),
+            ("Vergi Dairesi", vergi_dairesi),
+            ("Vergi No", vergi_no),
+            ("Ülke", ulke),
+            ("Şehir", sehir),
+            ("İlçe", ilce),
+            ("Adres", adres),
+        ]
+
+        for field_name, value in required_fields:
+            if not value:
+                QMessageBox.warning(self, "Eksik Bilgi", f"{field_name} alanı zorunludur.")
+                return
 
         try:
-
             CariModel.ekle(
-
-                self.txt_kod.text(),
-                self.txt_unvan.text(),
-                self.txt_yetkili.text(),
-                self.txt_telefon.text(),
-                self.txt_email.text(),
-                self.txt_vergi_dairesi.text(),
-                self.txt_vergi_no.text(),
-                self.txt_ulke.text(),
-                self.txt_sehir.text(),
-                self.txt_adres.toPlainText()
-
+                cari_kodu,
+                firma_unvani,
+                yetkili,
+                telefon,
+                email,
+                vergi_dairesi,
+                vergi_no,
+                ulke,
+                sehir,
+                ilce,
+                adres,
             )
-
-            QMessageBox.information(
-                self,
-                "Başarılı",
-                "Cari başarıyla kaydedildi."
-            )
-
+            QMessageBox.information(self, "Başarılı", "Cari başarıyla eklendi.")
             self.accept()
-
-        except Exception as hata:
-
-            QMessageBox.critical(
-                self,
-                "Hata",
-                str(hata)
-            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Hata", f"Cari eklenirken bir hata oluştu:\n{exc}")
