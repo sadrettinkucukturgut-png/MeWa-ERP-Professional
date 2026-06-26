@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QScrollArea,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -13,7 +14,7 @@ from core.tab_manager import TabManager
 from shared.widgets.menu_button import MenuButton
 from ui.cari_list_page import CariListPage
 from ui.dashboard_page import DashboardPage
-from ui.cari_page import CariPage
+from ui.stock_list_page import StockListPage
 
 
 class PlaceholderPage(QWidget):
@@ -42,10 +43,25 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
 
         self.sidebar = QFrame()
+        self.sidebar.setFixedWidth(260)
         self.sidebar.setStyleSheet(
             "QFrame{background-color:#0f172a; border:none;}"
         )
-        sidebar_layout = QVBoxLayout(self.sidebar)
+
+        sidebar_scroll = QScrollArea(self.sidebar)
+        sidebar_scroll.setWidgetResizable(True)
+        sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        sidebar_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        sidebar_scroll.setFrameShape(QFrame.NoFrame)
+        sidebar_scroll.setStyleSheet(
+            "QScrollArea{background-color:#0f172a; border:none;}"
+            "QScrollBar:vertical{background:#0f172a; width:8px;}"
+            "QScrollBar::handle:vertical{background:#475569; border-radius:4px;}"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{height:0px;}"
+        )
+
+        sidebar_content = QWidget()
+        sidebar_layout = QVBoxLayout(sidebar_content)
         sidebar_layout.setContentsMargins(12, 12, 12, 12)
         sidebar_layout.setSpacing(8)
 
@@ -132,6 +148,12 @@ class MainWindow(QMainWindow):
 
         sidebar_layout.addStretch()
 
+        sidebar_scroll.setWidget(sidebar_content)
+        sidebar_container_layout = QVBoxLayout(self.sidebar)
+        sidebar_container_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_container_layout.setSpacing(0)
+        sidebar_container_layout.addWidget(sidebar_scroll)
+
         self.tabs = TabManager()
         self.dashboard = DashboardPage()
         self.tabs.open_tab(self.dashboard, "🏠 Dashboard")
@@ -150,7 +172,8 @@ class MainWindow(QMainWindow):
         self.tabs.open_tab(PlaceholderPage("Cari Hareketleri"), "📄 Cari Hareketleri")
 
     def open_stock_list(self):
-        self.tabs.open_tab(PlaceholderPage("Stok Kartları"), "📦 Stok Kartları")
+        page = StockListPage()
+        self.tabs.open_tab(page, "📦 Stok Kartları")
 
     def open_stock_categories(self):
         self.tabs.open_tab(PlaceholderPage("Kategoriler"), "🗂 Kategoriler")

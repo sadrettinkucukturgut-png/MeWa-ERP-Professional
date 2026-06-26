@@ -7,6 +7,17 @@
 import sqlite3
 
 
+def _ensure_stock_currency_columns(cursor):
+    cursor.execute("PRAGMA table_info(stoklar)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "purchase_currency" not in columns:
+        cursor.execute("ALTER TABLE stoklar ADD COLUMN purchase_currency TEXT DEFAULT 'USD'")
+
+    if "sale_currency" not in columns:
+        cursor.execute("ALTER TABLE stoklar ADD COLUMN sale_currency TEXT DEFAULT 'USD'")
+
+
 def create_database():
 
     conn = sqlite3.connect("database/mewa.db")
@@ -38,6 +49,34 @@ def create_database():
 
     )
     """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS stoklar(
+
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        stock_code TEXT UNIQUE NOT NULL,
+        barcode TEXT,
+        product_name TEXT NOT NULL,
+        category TEXT,
+        brand TEXT,
+        unit TEXT,
+        purchase_price REAL DEFAULT 0,
+        sale_price REAL DEFAULT 0,
+        vat_rate REAL DEFAULT 0,
+        critical_stock REAL DEFAULT 0,
+        current_stock REAL DEFAULT 0,
+        warehouse TEXT,
+        shelf TEXT,
+        origin TEXT,
+        description TEXT,
+
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+
+    )
+    """)
+
+    _ensure_stock_currency_columns(cursor)
 
     conn.commit()
     conn.close()

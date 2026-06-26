@@ -21,7 +21,9 @@ class StockModel:
         brand,
         unit,
         purchase_price,
+        purchase_currency,
         sale_price,
+        sale_currency,
         vat_rate,
         critical_stock,
         current_stock,
@@ -46,7 +48,9 @@ class StockModel:
                 brand,
                 unit,
                 purchase_price,
+                purchase_currency,
                 sale_price,
+                sale_currency,
                 vat_rate,
                 critical_stock,
                 current_stock,
@@ -57,7 +61,7 @@ class StockModel:
 
             )
 
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 
             """, (
 
@@ -68,7 +72,9 @@ class StockModel:
                 brand,
                 unit,
                 purchase_price,
+                purchase_currency or "USD",
                 sale_price,
+                sale_currency or "USD",
                 vat_rate,
                 critical_stock,
                 current_stock,
@@ -99,7 +105,9 @@ class StockModel:
                 brand,
                 unit,
                 purchase_price,
+                purchase_currency,
                 sale_price,
+                sale_currency,
                 vat_rate,
                 critical_stock,
                 current_stock,
@@ -134,7 +142,9 @@ class StockModel:
                 brand,
                 unit,
                 purchase_price,
+                purchase_currency,
                 sale_price,
+                sale_currency,
                 vat_rate,
                 critical_stock,
                 current_stock,
@@ -161,7 +171,9 @@ class StockModel:
         brand,
         unit,
         purchase_price,
+        purchase_currency,
         sale_price,
+        sale_currency,
         vat_rate,
         critical_stock,
         current_stock,
@@ -187,7 +199,9 @@ class StockModel:
                 brand = ?,
                 unit = ?,
                 purchase_price = ?,
+                purchase_currency = ?,
                 sale_price = ?,
+                sale_currency = ?,
                 vat_rate = ?,
                 critical_stock = ?,
                 current_stock = ?,
@@ -206,7 +220,9 @@ class StockModel:
                 brand,
                 unit,
                 purchase_price,
+                purchase_currency or "USD",
                 sale_price,
+                sale_currency or "USD",
                 vat_rate,
                 critical_stock,
                 current_stock,
