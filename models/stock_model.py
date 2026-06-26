@@ -30,11 +30,11 @@ class StockModel:
         warehouse,
         shelf,
         origin,
-        description
+        description,
+        image_path=None,
     ):
 
         with sqlite3.connect(cls.DB_PATH) as conn:
-
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -57,11 +57,12 @@ class StockModel:
                 warehouse,
                 shelf,
                 origin,
-                description
+                description,
+                image_path
 
             )
 
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 
             """, (
 
@@ -81,7 +82,8 @@ class StockModel:
                 warehouse,
                 shelf,
                 origin,
-                description
+                description,
+                image_path,
 
             ))
 
@@ -91,7 +93,6 @@ class StockModel:
     def tum_stoklar(cls):
 
         with sqlite3.connect(cls.DB_PATH) as conn:
-
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -114,7 +115,8 @@ class StockModel:
                 warehouse,
                 shelf,
                 origin,
-                description
+                description,
+                image_path
 
             FROM stoklar
 
@@ -128,7 +130,6 @@ class StockModel:
     def getir(cls, stock_code):
 
         with sqlite3.connect(cls.DB_PATH) as conn:
-
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -151,7 +152,8 @@ class StockModel:
                 warehouse,
                 shelf,
                 origin,
-                description
+                description,
+                image_path
 
             FROM stoklar
 
@@ -180,11 +182,11 @@ class StockModel:
         warehouse,
         shelf,
         origin,
-        description
+        description,
+        image_path=None,
     ):
 
         with sqlite3.connect(cls.DB_PATH) as conn:
-
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -208,7 +210,8 @@ class StockModel:
                 warehouse = ?,
                 shelf = ?,
                 origin = ?,
-                description = ?
+                description = ?,
+                image_path = ?
 
             WHERE stock_code = ?
 
@@ -230,7 +233,8 @@ class StockModel:
                 shelf,
                 origin,
                 description,
-                stock_code
+                image_path,
+                stock_code,
 
             ))
 
@@ -240,7 +244,6 @@ class StockModel:
     def sil(cls, stock_code):
 
         with sqlite3.connect(cls.DB_PATH) as conn:
-
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -251,4 +254,65 @@ class StockModel:
 
             """, (stock_code,))
 
+            conn.commit()
+
+    @classmethod
+    def barcode_exists(cls, barcode, exclude_stock_code=None):
+        if not barcode:
+            return False
+
+        with sqlite3.connect(cls.DB_PATH) as conn:
+            cursor = conn.cursor()
+            if exclude_stock_code:
+                cursor.execute(
+                    "SELECT 1 FROM stoklar WHERE LOWER(barcode) = LOWER(?) AND stock_code != ?",
+                    (barcode, exclude_stock_code),
+                )
+            else:
+                cursor.execute(
+                    "SELECT 1 FROM stoklar WHERE LOWER(barcode) = LOWER(?)",
+                    (barcode,),
+                )
+            return cursor.fetchone() is not None
+
+    @classmethod
+    def get_categories(cls):
+        with sqlite3.connect(cls.DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM stok_kategoriler ORDER BY name")
+            return [row[0] for row in cursor.fetchall()]
+
+    @classmethod
+    def add_category(cls, name):
+        with sqlite3.connect(cls.DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR IGNORE INTO stok_kategoriler(name) VALUES(?)", (name,))
+            conn.commit()
+
+    @classmethod
+    def get_warehouses(cls):
+        with sqlite3.connect(cls.DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM stok_depolar ORDER BY name")
+            return [row[0] for row in cursor.fetchall()]
+
+    @classmethod
+    def add_warehouse(cls, name):
+        with sqlite3.connect(cls.DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR IGNORE INTO stok_depolar(name) VALUES(?)", (name,))
+            conn.commit()
+
+    @classmethod
+    def get_brands(cls):
+        with sqlite3.connect(cls.DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM stok_markalar ORDER BY name")
+            return [row[0] for row in cursor.fetchall()]
+
+    @classmethod
+    def add_brand(cls, name):
+        with sqlite3.connect(cls.DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR IGNORE INTO stok_markalar(name) VALUES(?)", (name,))
             conn.commit()

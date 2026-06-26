@@ -17,6 +17,34 @@ def _ensure_stock_currency_columns(cursor):
     if "sale_currency" not in columns:
         cursor.execute("ALTER TABLE stoklar ADD COLUMN sale_currency TEXT DEFAULT 'USD'")
 
+    if "image_path" not in columns:
+        cursor.execute("ALTER TABLE stoklar ADD COLUMN image_path TEXT")
+
+
+def _ensure_stock_reference_tables(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS stok_kategoriler(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS stok_depolar(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS stok_markalar(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL
+    )
+    """)
+
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_stoklar_barcode_nonempty ON stoklar(barcode) WHERE barcode IS NOT NULL AND barcode != ''")
+
 
 def create_database():
 
@@ -62,7 +90,9 @@ def create_database():
         brand TEXT,
         unit TEXT,
         purchase_price REAL DEFAULT 0,
+        purchase_currency TEXT DEFAULT 'USD',
         sale_price REAL DEFAULT 0,
+        sale_currency TEXT DEFAULT 'USD',
         vat_rate REAL DEFAULT 0,
         critical_stock REAL DEFAULT 0,
         current_stock REAL DEFAULT 0,
@@ -70,6 +100,7 @@ def create_database():
         shelf TEXT,
         origin TEXT,
         description TEXT,
+        image_path TEXT,
 
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 
@@ -77,6 +108,7 @@ def create_database():
     """)
 
     _ensure_stock_currency_columns(cursor)
+    _ensure_stock_reference_tables(cursor)
 
     conn.commit()
     conn.close()

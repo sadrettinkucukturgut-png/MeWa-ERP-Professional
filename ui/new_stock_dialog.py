@@ -1,27 +1,32 @@
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from models.stock_model import StockModel
+from ui.stock_reference_dialog import StockReferenceDialog
 
 
 class NewStockDialog(QDialog):
     def __init__(self, stock_code: str | None = None):
         super().__init__()
         self.stock_code = stock_code
+        self.image_path = ""
         self.setWindowTitle("Yeni Stok Kartı" if stock_code is None else "Stok Kartı Düzenle")
-        self.resize(760, 640)
+        self.resize(840, 760)
         self._setup_ui()
 
         if stock_code:
@@ -29,12 +34,22 @@ class NewStockDialog(QDialog):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(20, 20, 20, 20)
+        content_layout.setSpacing(14)
 
         title = QLabel("📦 Stok Kartı")
         title.setStyleSheet("font-size: 20px; font-weight: bold;")
-        layout.addWidget(title)
+        content_layout.addWidget(title)
 
         form_layout = QFormLayout()
         form_layout.setLabelAlignment(Qt.AlignLeft)
@@ -43,8 +58,13 @@ class NewStockDialog(QDialog):
         self.stock_code_input = QLineEdit()
         self.barcode_input = QLineEdit()
         self.product_name_input = QLineEdit()
-        self.category_input = QLineEdit()
-        self.brand_input = QLineEdit()
+
+        self.category_combo = QComboBox()
+        self.category_combo.setEditable(True)
+        self.category_combo.setInsertPolicy(QComboBox.NoInsert)
+        self.brand_combo = QComboBox()
+        self.brand_combo.setEditable(True)
+        self.brand_combo.setInsertPolicy(QComboBox.NoInsert)
         self.unit_input = QLineEdit()
         self.purchase_price_input = QLineEdit()
         self.purchase_currency_input = QComboBox()
@@ -57,11 +77,30 @@ class NewStockDialog(QDialog):
         self.vat_rate_input = QLineEdit()
         self.critical_stock_input = QLineEdit()
         self.current_stock_input = QLineEdit()
-        self.warehouse_input = QLineEdit()
+        self.warehouse_combo = QComboBox()
+        self.warehouse_combo.setEditable(True)
+        self.warehouse_combo.setInsertPolicy(QComboBox.NoInsert)
         self.shelf_input = QLineEdit()
         self.origin_input = QLineEdit()
         self.description_input = QTextEdit()
         self.description_input.setFixedHeight(90)
+
+        self.image_label = QLabel("Görsel yok")
+        self.image_label.setFixedSize(120, 120)
+        self.image_label.setStyleSheet("border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc;")
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_button = QPushButton("Görsel Seç")
+        self.image_button.clicked.connect(self._select_image)
+        self.clear_image_button = QPushButton("Temizle")
+        self.clear_image_button.clicked.connect(self._clear_image)
+
+        image_widget = QWidget()
+        image_layout = QHBoxLayout(image_widget)
+        image_layout.setContentsMargins(0, 0, 0, 0)
+        image_layout.setSpacing(8)
+        image_layout.addWidget(self.image_label)
+        image_layout.addWidget(self.image_button)
+        image_layout.addWidget(self.clear_image_button)
 
         purchase_widget = QWidget()
         purchase_row = QHBoxLayout(purchase_widget)
@@ -77,28 +116,35 @@ class NewStockDialog(QDialog):
         sale_row.addWidget(self.sale_price_input, 1)
         sale_row.addWidget(self.sale_currency_input, 0)
 
+        category_widget = self._build_reference_widget(self.category_combo, "Kategori")
+        brand_widget = self._build_reference_widget(self.brand_combo, "Marka")
+        warehouse_widget = self._build_reference_widget(self.warehouse_combo, "Depo")
+
         fields = [
             ("Stok Kodu*", self.stock_code_input),
             ("Barkod", self.barcode_input),
             ("Ürün Adı*", self.product_name_input),
-            ("Kategori", self.category_input),
-            ("Marka", self.brand_input),
+            ("Kategori", category_widget),
+            ("Marka", brand_widget),
             ("Birim", self.unit_input),
             ("Alış Fiyatı", purchase_widget),
             ("Satış Fiyatı", sale_widget),
             ("KDV Oranı", self.vat_rate_input),
             ("Kritik Stok", self.critical_stock_input),
             ("Mevcut Stok", self.current_stock_input),
-            ("Depo", self.warehouse_input),
+            ("Depo", warehouse_widget),
             ("Raf", self.shelf_input),
             ("Menşei", self.origin_input),
+            ("Ürün Görseli", image_widget),
             ("Açıklama", self.description_input),
         ]
 
         for label, widget in fields:
             form_layout.addRow(label, widget)
 
-        layout.addLayout(form_layout)
+        content_layout.addLayout(form_layout)
+
+        self._load_reference_values()
 
         if self.stock_code:
             self.stock_code_input.setEnabled(False)
@@ -114,7 +160,60 @@ class NewStockDialog(QDialog):
 
         button_row.addWidget(save_button)
         button_row.addWidget(cancel_button)
-        layout.addLayout(button_row)
+        content_layout.addLayout(button_row)
+
+        scroll_area.setWidget(content_widget)
+        layout.addWidget(scroll_area)
+
+    def _build_reference_widget(self, combo, title):
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(combo, 1)
+        button = QPushButton("...")
+        button.clicked.connect(lambda checked=False, target=combo, label=title: self._manage_reference(target, label))
+        layout.addWidget(button)
+        return widget
+
+    def _load_reference_values(self):
+        self.category_combo.clear()
+        self.category_combo.addItems(StockModel.get_categories())
+        self.brand_combo.clear()
+        self.brand_combo.addItems(StockModel.get_brands())
+        self.warehouse_combo.clear()
+        self.warehouse_combo.addItems(StockModel.get_warehouses())
+
+    def _manage_reference(self, combo, title):
+        if title == "Kategori":
+            dialog = StockReferenceDialog("Kategori Yönetimi", "category")
+        elif title == "Marka":
+            dialog = StockReferenceDialog("Marka Yönetimi", "brand")
+        else:
+            dialog = StockReferenceDialog("Depo Yönetimi", "warehouse")
+
+        if dialog.exec():
+            self._load_reference_values()
+            current_text = combo.currentText()
+            if current_text:
+                index = combo.findText(current_text)
+                if index >= 0:
+                    combo.setCurrentIndex(index)
+
+    def _select_image(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Ürün Görseli Seç", "", "Resim Dosyaları (*.png *.jpg *.jpeg *.bmp *.gif)")
+        if file_path:
+            self.image_path = file_path
+            pixmap = QPixmap(file_path)
+            if not pixmap.isNull():
+                self.image_label.setPixmap(pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            else:
+                self.image_label.setText("Görsel yüklenemedi")
+
+    def _clear_image(self):
+        self.image_path = ""
+        self.image_label.clear()
+        self.image_label.setText("Görsel yok")
 
     def _load_stock_data(self):
         stok = StockModel.getir(self.stock_code)
@@ -124,8 +223,8 @@ class NewStockDialog(QDialog):
         self.stock_code_input.setText(stok[0] or "")
         self.barcode_input.setText(stok[1] or "")
         self.product_name_input.setText(stok[2] or "")
-        self.category_input.setText(stok[3] or "")
-        self.brand_input.setText(stok[4] or "")
+        self._set_combo_value(self.category_combo, stok[3])
+        self._set_combo_value(self.brand_combo, stok[4])
         self.unit_input.setText(stok[5] or "")
         self.purchase_price_input.setText(str(stok[6] or ""))
         self.purchase_currency_input.setCurrentText(stok[7] or "USD")
@@ -134,27 +233,52 @@ class NewStockDialog(QDialog):
         self.vat_rate_input.setText(str(stok[10] or ""))
         self.critical_stock_input.setText(str(stok[11] or ""))
         self.current_stock_input.setText(str(stok[12] or ""))
-        self.warehouse_input.setText(stok[13] or "")
+        self._set_combo_value(self.warehouse_combo, stok[13])
         self.shelf_input.setText(stok[14] or "")
         self.origin_input.setText(stok[15] or "")
         self.description_input.setPlainText(stok[16] or "")
+        self.image_path = stok[17] or ""
+        if self.image_path:
+            pixmap = QPixmap(self.image_path)
+            if not pixmap.isNull():
+                self.image_label.setPixmap(pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            else:
+                self.image_label.setText("Görsel yüklenemedi")
+        else:
+            self._clear_image()
+
+    def _set_combo_value(self, combo, value):
+        if not value:
+            combo.setCurrentText("")
+            return
+        index = combo.findText(value)
+        if index >= 0:
+            combo.setCurrentIndex(index)
+        else:
+            combo.addItem(value)
+            combo.setCurrentText(value)
 
     def _on_save(self):
         stock_code = self.stock_code_input.text().strip()
         product_name = self.product_name_input.text().strip()
+        barcode = self.barcode_input.text().strip()
 
         if not stock_code or not product_name:
             QMessageBox.warning(self, "Uyarı", "Stok kodu ve ürün adı zorunludur.")
+            return
+
+        if barcode and StockModel.barcode_exists(barcode, self.stock_code):
+            QMessageBox.warning(self, "Uyarı", "Bu barkod başka bir stok kartında kullanılıyor.")
             return
 
         try:
             if self.stock_code:
                 StockModel.guncelle(
                     self.stock_code,
-                    self.barcode_input.text().strip(),
+                    barcode,
                     product_name,
-                    self.category_input.text().strip(),
-                    self.brand_input.text().strip(),
+                    self.category_combo.currentText().strip(),
+                    self.brand_combo.currentText().strip(),
                     self.unit_input.text().strip(),
                     self.purchase_price_input.text().strip(),
                     self.purchase_currency_input.currentText(),
@@ -163,18 +287,19 @@ class NewStockDialog(QDialog):
                     self.vat_rate_input.text().strip(),
                     self.critical_stock_input.text().strip(),
                     self.current_stock_input.text().strip(),
-                    self.warehouse_input.text().strip(),
+                    self.warehouse_combo.currentText().strip(),
                     self.shelf_input.text().strip(),
                     self.origin_input.text().strip(),
                     self.description_input.toPlainText().strip(),
+                    self.image_path,
                 )
             else:
                 StockModel.ekle(
                     stock_code,
-                    self.barcode_input.text().strip(),
+                    barcode,
                     product_name,
-                    self.category_input.text().strip(),
-                    self.brand_input.text().strip(),
+                    self.category_combo.currentText().strip(),
+                    self.brand_combo.currentText().strip(),
                     self.unit_input.text().strip(),
                     self.purchase_price_input.text().strip(),
                     self.purchase_currency_input.currentText(),
@@ -183,10 +308,11 @@ class NewStockDialog(QDialog):
                     self.vat_rate_input.text().strip(),
                     self.critical_stock_input.text().strip(),
                     self.current_stock_input.text().strip(),
-                    self.warehouse_input.text().strip(),
+                    self.warehouse_combo.currentText().strip(),
                     self.shelf_input.text().strip(),
                     self.origin_input.text().strip(),
                     self.description_input.toPlainText().strip(),
+                    self.image_path,
                 )
 
             QMessageBox.information(self, "Başarılı", "Stok kartı kaydedildi.")

@@ -2,7 +2,8 @@ from pathlib import Path
 import sqlite3
 
 from PySide6.QtCore import Qt, QSettings
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QPainter
+from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -56,7 +57,7 @@ class CariListPage(QWidget):
         layout.addWidget(search_label)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Cari Kodu, Firma Ünvanı, Yetkili, Telefon veya Şehir")
+        self.search_input.setPlaceholderText("Cari Kodu, Firma Ünvanı, Yetkili, Telefon, Şehir veya Ülke")
         self.search_input.textChanged.connect(self._handle_search)
         layout.addWidget(self.search_input)
 
@@ -75,9 +76,11 @@ class CariListPage(QWidget):
         self.toolbar.addAction(self.action_excel)
 
         self.action_pdf = QAction("🖨 PDF", self)
+        self.action_pdf.triggered.connect(self._export_to_pdf)
         self.toolbar.addAction(self.action_pdf)
 
         self.action_print = QAction("🖨 Yazdır", self)
+        self.action_print.triggered.connect(self._print_table)
         self.toolbar.addAction(self.action_print)
 
         self.toolbar.addSeparator()
@@ -130,6 +133,7 @@ class CariListPage(QWidget):
             "Yetkili",
             "Telefon",
             "Şehir",
+            "Ülke",
         ]
         self.cari_table.setColumnCount(len(self.column_labels))
         self.cari_table.setHorizontalHeaderLabels(self.column_labels)
@@ -173,9 +177,10 @@ class CariListPage(QWidget):
                     LOWER(firma_unvani) LIKE ? OR
                     LOWER(yetkili) LIKE ? OR
                     LOWER(telefon) LIKE ? OR
-                    LOWER(sehir) LIKE ?
+                    LOWER(sehir) LIKE ? OR
+                    LOWER(ulke) LIKE ?
             """
-            params = [keyword.lower() for _ in range(5)]
+            params = [keyword.lower() for _ in range(6)]
 
         query += " ORDER BY firma_unvani"
 
@@ -274,6 +279,84 @@ class CariListPage(QWidget):
 
         workbook.save(save_path)
         QMessageBox.information(self, "Başarılı", "Excel dosyası başarıyla export edildi.")
+
+    def _export_to_pdf(self):
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "PDF Dosyasını Kaydet",
+            "Cari_Listesi.pdf",
+            "PDF Dosyaları (*.pdf)",
+        )
+        if not save_path:
+            return
+
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setOutputFormat(QPrinter.PdfFormat)
+        printer.setOutputFileName(save_path)
+        printer.setPageSize(QPrinter.A4)
+        printer.setOrientation(QPrinter.Portrait)
+        printer.setDocName("Cari Listesi")
+
+        painter = QPainter(printer)
+        try:
+            page_width = printer.pageRect(QPrinter.DevicePixel).width()
+            page_height = printer.pageRect(QPrinter.DevicePixel).height()
+            x_margin = 30
+            y_margin = 30
+            row_height = 20
+            header_height = 28
+            col_widths = []
+            total_cols = self.cari_table.columnCount()
+            for col in range(total_cols):
+                col_widths.append(max(80, int((page_width - 2 * x_margin) / total_cols)))
+
+            painter.setFont(self.font())
+            painter.drawText(x_margin, y_margin, "Cari Listesi")
+            y = y_margin + 24
+            painter.drawLine(x_margin, y, page_width - x_margin, y)
+            y += 8
+
+            painter.setFont(self.font())
+            for col, label in enumerate(self.column_labels):
+                painter.drawText(x_margin + sum(col_widths[:col]), y, col_widths[col], header_height, Qt.AlignLeft | Qt.AlignVCenter, label)
+            y += header_height
+            painter.drawLine(x_margin, y, page_width - x_margin, y)
+            y += 4
+
+            for row in range(self.cari_table.rowCount()):
+                if y + row_height > page_height - y_margin:
+                    printer.newPage()
+                    y = y_margin + 20
+                    painter.drawText(x_margin, y_margin, "Cari Listesi")
+                    y += 24
+                    painter.drawLine(x_margin, y, page_width - x_margin, y)
+                    y += 8
+                    for col, label in enumerate(self.column_labels):
+                        painter.drawText(x_margin + sum(col_widths[:col]), y, col_widths[col], header_height, Qt.AlignLeft | Qt.AlignVCenter, label)
+                    y += header_height
+                    painter.drawLine(x_margin, y, page_width - x_margin, y)
+                    y += 4
+
+                for col in range(total_cols):
+                    item = self.cari_table.item(row, col)
+                    text = "" if item is None else item.text()
+                    painter.drawText(x_margin + sum(col_widths[:col]), y, col_widths[col], row_height, Qt.AlignLeft | Qt.AlignVCenter, text)
+                y += row_height
+        finally:
+            painter.end()
+
+        QMessageBox.information(self, "Başarılı", "PDF dosyası başarıyla export edildi.")
+
+    def _print_table(self):
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setOutputFormat(QPrinter.NativeFormat)
+        printer.setDocName("Cari Listesi")
+
+        painter = QPainter(printer)
+        try:
+            painter.drawText(50, 50, "Cari Listesi")
+        finally:
+            painter.end()
 
     def _get_selected_cari_kodu(self):
         selected_row = self.cari_table.currentRow()
