@@ -1,9 +1,9 @@
-from pathlib import Path
+import re
 import sqlite3
+from pathlib import Path
 
-from PySide6.QtCore import Qt, QSettings
-from PySide6.QtGui import QAction, QPainter
-from PySide6.QtPrintSupport import QPrinter
+from PySide6.QtCore import Qt, QSettings, QUrl
+from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -21,6 +21,9 @@ from PySide6.QtWidgets import (
 )
 
 from models.cari_model import CariModel
+from services.excel_service import ExcelService
+from services.pdf_service import PDFService
+from services.print_service import PrintService
 from ui.new_cari_dialog import NewCariDialog
 
 
@@ -82,6 +85,11 @@ class CariListPage(QWidget):
         self.action_print = QAction("🖨 Yazdır", self)
         self.action_print.triggered.connect(self._print_table)
         self.toolbar.addAction(self.action_print)
+
+        self.action_whatsapp = QAction("🟢 WhatsApp", self)
+        self.action_whatsapp.setEnabled(False)
+        self.action_whatsapp.triggered.connect(self._open_whatsapp)
+        self.toolbar.addAction(self.action_whatsapp)
 
         self.toolbar.addSeparator()
 
@@ -146,6 +154,7 @@ class CariListPage(QWidget):
         self.cari_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.cari_table.doubleClicked.connect(self.cari_ac)
         self.cari_table.customContextMenuRequested.connect(self._show_context_menu)
+        self.cari_table.selectionModel().selectionChanged.connect(self._update_whatsapp_action_state)
 
         header = self.cari_table.horizontalHeader()
         header.setStretchLastSection(True)
@@ -153,6 +162,7 @@ class CariListPage(QWidget):
 
         self.settings = QSettings("MeWa", "ERP")
         self._restore_column_visibility()
+        self._update_whatsapp_action_state()
 
         layout.addWidget(self.cari_table)
 
@@ -216,6 +226,61 @@ class CariListPage(QWidget):
     def _handle_search(self, text: str):
         self.load_cari_list(text)
 
+    def _update_whatsapp_action_state(self):
+        selected_row = self.cari_table.currentRow()
+        if selected_row < 0:
+            self.action_whatsapp.setEnabled(False)
+            return
+
+        phone_item = self.cari_table.item(selected_row, 3)
+        phone_text = phone_item.text().strip() if phone_item is not None else ""
+        normalized_phone = self._normalize_phone_number(phone_text)
+        self.action_whatsapp.setEnabled(bool(normalized_phone))
+
+    def _normalize_phone_number(self, phone: str) -> str:
+        if not phone:
+            return ""
+
+        cleaned = re.sub(r"\D", "", phone)
+        if not cleaned:
+            return ""
+
+        if phone.strip().startswith("+"):
+            return "+" + cleaned
+
+        if phone.strip().startswith("00"):
+            return "+" + cleaned[2:]
+
+        if cleaned.startswith("90") and len(cleaned) >= 11:
+            return "+" + cleaned
+
+        if cleaned.startswith("0") and len(cleaned) >= 10:
+            return "+90" + cleaned[1:]
+
+        if len(cleaned) >= 10:
+            return "+" + cleaned
+
+        return ""
+
+    def _open_whatsapp(self):
+        selected_row = self.cari_table.currentRow()
+        if selected_row < 0:
+            return
+
+        phone_item = self.cari_table.item(selected_row, 3)
+        phone_text = phone_item.text().strip() if phone_item is not None else ""
+        normalized_phone = self._normalize_phone_number(phone_text)
+        if not normalized_phone:
+            QMessageBox.warning(self, "Uyarı", "Seçili müşterinin telefon numarası bulunamadı.")
+            return
+
+        desktop_url = QUrl(f"whatsapp://send?phone={normalized_phone}")
+        if QDesktopServices.openUrl(desktop_url):
+            return
+
+        web_url = QUrl(f"https://web.whatsapp.com/send?phone={normalized_phone}")
+        QDesktopServices.openUrl(web_url)
+
     def _show_column_menu(self):
         menu = QMenu(self)
         for index, label in enumerate(self.column_labels):
@@ -241,25 +306,6 @@ class CariListPage(QWidget):
             self.load_cari_list(self.search_input.text())
 
     def _export_to_excel(self):
-        try:
-            from openpyxl import Workbook  # type: ignore
-        except ImportError:
-            QMessageBox.critical(self, "Hata", "openpyxl yüklü değil. Lütfen pip install openpyxl ile kurun.")
-            return
-
-        save_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Excel Dosyasını Kaydet",
-            "Cari_Listesi.xlsx",
-            "Excel Dosyaları (*.xlsx)",
-        )
-        if not save_path:
-            return
-
-        workbook = Workbook()
-        sheet = workbook.active
-        sheet.title = "Cari Listesi"
-
         headers = [
             "Cari Kodu",
             "Firma Ünvanı",
@@ -268,95 +314,53 @@ class CariListPage(QWidget):
             "Şehir",
             "Ülke",
         ]
-        sheet.append(headers)
-
+        rows = []
         for row in range(self.cari_table.rowCount()):
             values = []
             for col in range(self.cari_table.columnCount()):
                 item = self.cari_table.item(row, col)
                 values.append("" if item is None else item.text())
-            sheet.append(values)
+            rows.append(values)
 
-        workbook.save(save_path)
-        QMessageBox.information(self, "Başarılı", "Excel dosyası başarıyla export edildi.")
+        ExcelService.export_excel(
+            self,
+            headers,
+            rows,
+            "Cari_Listesi.xlsx",
+            sheet_title="Cari Listesi",
+            success_message="Excel dosyası başarıyla export edildi.",
+        )
 
     def _export_to_pdf(self):
-        save_path, _ = QFileDialog.getSaveFileName(
+        headers = self.column_labels
+        rows = []
+        for row in range(self.cari_table.rowCount()):
+            values = []
+            for col in range(self.cari_table.columnCount()):
+                item = self.cari_table.item(row, col)
+                values.append("" if item is None else item.text())
+            rows.append(values)
+
+        PDFService.generate_pdf(
             self,
-            "PDF Dosyasını Kaydet",
+            headers,
+            rows,
             "Cari_Listesi.pdf",
-            "PDF Dosyaları (*.pdf)",
+            "Cari Listesi",
+            logo_path=None,
         )
-        if not save_path:
-            return
-
-        printer = QPrinter(QPrinter.HighResolution)
-        printer.setOutputFormat(QPrinter.PdfFormat)
-        printer.setOutputFileName(save_path)
-        printer.setPageSize(QPrinter.A4)
-        printer.setOrientation(QPrinter.Portrait)
-        printer.setDocName("Cari Listesi")
-
-        painter = QPainter(printer)
-        try:
-            page_width = printer.pageRect(QPrinter.DevicePixel).width()
-            page_height = printer.pageRect(QPrinter.DevicePixel).height()
-            x_margin = 30
-            y_margin = 30
-            row_height = 20
-            header_height = 28
-            col_widths = []
-            total_cols = self.cari_table.columnCount()
-            for col in range(total_cols):
-                col_widths.append(max(80, int((page_width - 2 * x_margin) / total_cols)))
-
-            painter.setFont(self.font())
-            painter.drawText(x_margin, y_margin, "Cari Listesi")
-            y = y_margin + 24
-            painter.drawLine(x_margin, y, page_width - x_margin, y)
-            y += 8
-
-            painter.setFont(self.font())
-            for col, label in enumerate(self.column_labels):
-                painter.drawText(x_margin + sum(col_widths[:col]), y, col_widths[col], header_height, Qt.AlignLeft | Qt.AlignVCenter, label)
-            y += header_height
-            painter.drawLine(x_margin, y, page_width - x_margin, y)
-            y += 4
-
-            for row in range(self.cari_table.rowCount()):
-                if y + row_height > page_height - y_margin:
-                    printer.newPage()
-                    y = y_margin + 20
-                    painter.drawText(x_margin, y_margin, "Cari Listesi")
-                    y += 24
-                    painter.drawLine(x_margin, y, page_width - x_margin, y)
-                    y += 8
-                    for col, label in enumerate(self.column_labels):
-                        painter.drawText(x_margin + sum(col_widths[:col]), y, col_widths[col], header_height, Qt.AlignLeft | Qt.AlignVCenter, label)
-                    y += header_height
-                    painter.drawLine(x_margin, y, page_width - x_margin, y)
-                    y += 4
-
-                for col in range(total_cols):
-                    item = self.cari_table.item(row, col)
-                    text = "" if item is None else item.text()
-                    painter.drawText(x_margin + sum(col_widths[:col]), y, col_widths[col], row_height, Qt.AlignLeft | Qt.AlignVCenter, text)
-                y += row_height
-        finally:
-            painter.end()
-
-        QMessageBox.information(self, "Başarılı", "PDF dosyası başarıyla export edildi.")
 
     def _print_table(self):
-        printer = QPrinter(QPrinter.HighResolution)
-        printer.setOutputFormat(QPrinter.NativeFormat)
-        printer.setDocName("Cari Listesi")
+        headers = self.column_labels
+        rows = []
+        for row in range(self.cari_table.rowCount()):
+            values = []
+            for col in range(self.cari_table.columnCount()):
+                item = self.cari_table.item(row, col)
+                values.append("" if item is None else item.text())
+            rows.append(values)
 
-        painter = QPainter(printer)
-        try:
-            painter.drawText(50, 50, "Cari Listesi")
-        finally:
-            painter.end()
+        PrintService.print_report(self, headers, rows, "Cari Listesi")
 
     def _get_selected_cari_kodu(self):
         selected_row = self.cari_table.currentRow()

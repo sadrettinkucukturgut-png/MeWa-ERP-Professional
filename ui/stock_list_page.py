@@ -1,8 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSettings
-from PySide6.QtGui import QAction, QTextDocument
-from PySide6.QtPrintSupport import QPrintDialog, QPrinter
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -20,6 +19,9 @@ from PySide6.QtWidgets import (
 )
 
 from models.stock_model import StockModel
+from services.excel_service import ExcelService
+from services.pdf_service import PDFService
+from services.print_service import PrintService
 from ui.new_stock_dialog import NewStockDialog
 
 
@@ -71,6 +73,10 @@ class StockListPage(QWidget):
         self.action_print = QAction("🖨 Yazdır", self)
         self.action_print.triggered.connect(self._print_table)
         self.toolbar.addAction(self.action_print)
+
+        self.action_whatsapp = QAction("🟢 WhatsApp", self)
+        self.action_whatsapp.setEnabled(False)
+        self.toolbar.addAction(self.action_whatsapp)
 
         self.toolbar.addSeparator()
 
@@ -299,25 +305,6 @@ class StockListPage(QWidget):
                 QMessageBox.critical(self, "Hata", f"Stok silinirken bir hata oluştu:\n{exc}")
 
     def _export_to_excel(self):
-        try:
-            from openpyxl import Workbook  # type: ignore
-        except ImportError:
-            QMessageBox.critical(self, "Hata", "openpyxl yüklü değil. Lütfen pip install openpyxl ile kurun.")
-            return
-
-        save_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Excel Dosyasını Kaydet",
-            "Stok_Listesi.xlsx",
-            "Excel Dosyaları (*.xlsx)",
-        )
-        if not save_path:
-            return
-
-        workbook = Workbook()
-        sheet = workbook.active
-        sheet.title = "Stok Listesi"
-
         headers = [
             "Stok Kodu",
             "Barkod",
@@ -331,17 +318,22 @@ class StockListPage(QWidget):
             "Kritik Stok",
             "Depo",
         ]
-        sheet.append(headers)
-
+        rows = []
         for row in range(self.stok_table.rowCount()):
             values = []
             for col in range(self.stok_table.columnCount()):
                 item = self.stok_table.item(row, col)
                 values.append("" if item is None else item.text())
-            sheet.append(values)
+            rows.append(values)
 
-        workbook.save(save_path)
-        QMessageBox.information(self, "Başarılı", "Excel dosyası başarıyla export edildi.")
+        ExcelService.export_excel(
+            self,
+            headers,
+            rows,
+            "Stok_Listesi.xlsx",
+            sheet_title="Stok Listesi",
+            success_message="Excel dosyası başarıyla export edildi.",
+        )
 
     def _format_price_value(self, price, currency):
         if price in (None, ""):
@@ -371,54 +363,32 @@ class StockListPage(QWidget):
             self.stok_table.setColumnHidden(index, not visible)
 
     def _export_to_pdf(self):
-        save_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "PDF Dosyasını Kaydet",
-            "Stok_Listesi.pdf",
-            "PDF Dosyaları (*.pdf)",
-        )
-        if not save_path:
-            return
+        headers = self.column_labels
+        rows = []
+        for row in range(self.stok_table.rowCount()):
+            values = []
+            for col in range(self.stok_table.columnCount()):
+                item = self.stok_table.item(row, col)
+                values.append("" if item is None else item.text())
+            rows.append(values)
 
-        printer = QPrinter(QPrinter.HighResolution)
-        printer.setOutputFormat(QPrinter.PdfFormat)
-        printer.setOutputFileName(save_path)
-        self._print_document(printer)
+        PDFService.generate_pdf(
+            self,
+            headers,
+            rows,
+            "Stok_Listesi.pdf",
+            "Stok Listesi",
+            logo_path=None,
+        )
 
     def _print_table(self):
-        printer = QPrinter(QPrinter.HighResolution)
-        dialog = QPrintDialog(printer, self)
-        if dialog.exec_() != 0:
-            return
-        self._print_document(printer)
-
-    def _print_document(self, printer):
-        document = QTextDocument()
-        document.setHtml(self._build_table_html())
-        document.print(printer)
-
-    def _build_table_html(self):
-        visible_columns = []
-        for index, label in enumerate(self.column_labels):
-            if not self.stok_table.isColumnHidden(index):
-                visible_columns.append(label)
-
+        headers = self.column_labels
         rows = []
-        rows.append("<tr>" + "".join(f"<th>{label}</th>" for label in visible_columns) + "</tr>")
-
         for row in range(self.stok_table.rowCount()):
-            cells = []
-            for col, label in enumerate(self.column_labels):
-                if self.stok_table.isColumnHidden(col):
-                    continue
+            values = []
+            for col in range(self.stok_table.columnCount()):
                 item = self.stok_table.item(row, col)
-                value = "" if item is None else item.text()
-                cells.append(f"<td>{value}</td>")
-            rows.append("<tr>" + "".join(cells) + "</tr>")
+                values.append("" if item is None else item.text())
+            rows.append(values)
 
-        return (
-            "<html><body style='font-family:Arial; font-size:10px;'>"
-            "<h2>Stok Listesi</h2>"
-            f"<table border='1' cellspacing='0' cellpadding='4'>{''.join(rows)}</table>"
-            "</body></html>"
-        )
+        PrintService.print_report(self, headers, rows, "Stok Listesi")
