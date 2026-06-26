@@ -1,7 +1,7 @@
 from pathlib import Path
 import sqlite3
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -80,6 +80,12 @@ class CariListPage(QWidget):
         self.action_print = QAction("🖨 Yazdır", self)
         self.toolbar.addAction(self.action_print)
 
+        self.toolbar.addSeparator()
+
+        self.action_columns = QAction("⚙️ Kolonlar", self)
+        self.action_columns.triggered.connect(self._show_column_menu)
+        self.toolbar.addAction(self.action_columns)
+
         self.stats_layout = QGridLayout()
         self.stats_layout.setSpacing(12)
         self.stats_container = QFrame()
@@ -118,14 +124,15 @@ class CariListPage(QWidget):
 
         self.cari_table = QTableWidget()
         self.cari_table.setObjectName("cariTable")
-        self.cari_table.setColumnCount(5)
-        self.cari_table.setHorizontalHeaderLabels([
+        self.column_labels = [
             "Cari Kodu",
             "Firma Ünvanı",
             "Yetkili",
             "Telefon",
             "Şehir",
-        ])
+        ]
+        self.cari_table.setColumnCount(len(self.column_labels))
+        self.cari_table.setHorizontalHeaderLabels(self.column_labels)
         self.cari_table.setAlternatingRowColors(True)
         self.cari_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.cari_table.setSelectionMode(QTableWidget.SingleSelection)
@@ -139,6 +146,9 @@ class CariListPage(QWidget):
         header = self.cari_table.horizontalHeader()
         header.setStretchLastSection(True)
         header.setSectionResizeMode(QHeaderView.Stretch)
+
+        self.settings = QSettings("MeWa", "ERP")
+        self._restore_column_visibility()
 
         layout.addWidget(self.cari_table)
 
@@ -200,6 +210,25 @@ class CariListPage(QWidget):
 
     def _handle_search(self, text: str):
         self.load_cari_list(text)
+
+    def _show_column_menu(self):
+        menu = QMenu(self)
+        for index, label in enumerate(self.column_labels):
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(not self.cari_table.isColumnHidden(index))
+            action.triggered.connect(lambda checked, col=index: self._set_column_visibility(col, checked))
+            menu.addAction(action)
+        menu.exec_(self.toolbar.mapToGlobal(self.toolbar.rect().bottomLeft()))
+
+    def _set_column_visibility(self, column_index, visible):
+        self.cari_table.setColumnHidden(column_index, not visible)
+        self.settings.setValue(f"cari_columns/{column_index}", visible)
+
+    def _restore_column_visibility(self):
+        for index, _ in enumerate(self.column_labels):
+            visible = self.settings.value(f"cari_columns/{index}", True)
+            self.cari_table.setColumnHidden(index, not visible)
 
     def _yeni_cari_ekle(self):
         dialog = NewCariDialog()
