@@ -13,10 +13,13 @@ from models.cari_model import CariModel
 
 
 class NewCariDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, cari_kodu=None, parent=None):
         super().__init__(parent)
 
-        self.setWindowTitle("Yeni Cari Kartı")
+        self.cari_kodu = cari_kodu
+        self.is_edit_mode = cari_kodu is not None
+
+        self.setWindowTitle("Cari Düzenle" if self.is_edit_mode else "Yeni Cari Kartı")
         self.resize(700, 500)
 
         self.txt_kod = QLineEdit()
@@ -32,7 +35,7 @@ class NewCariDialog(QDialog):
         self.txt_adres = QTextEdit()
         self.txt_adres.setMinimumHeight(120)
 
-        self.btn_kaydet = QPushButton("💾 Kaydet")
+        self.btn_kaydet = QPushButton("💾 Güncelle" if self.is_edit_mode else "💾 Kaydet")
         self.btn_iptal = QPushButton("İptal")
 
         self.btn_kaydet.clicked.connect(self._on_save)
@@ -72,6 +75,32 @@ class NewCariDialog(QDialog):
         main_layout.addLayout(grid)
         main_layout.addLayout(button_layout)
 
+        if self.is_edit_mode:
+            self._load_customer_data()
+
+    def _load_customer_data(self):
+        try:
+            veri = CariModel.getir(self.cari_kodu)
+            if not veri:
+                QMessageBox.warning(self, "Bilgi", "Cari bulunamadı.")
+                self.reject()
+                return
+
+            self.txt_kod.setText(veri[0] or "")
+            self.txt_unvan.setText(veri[1] or "")
+            self.txt_yetkili.setText(veri[2] or "")
+            self.txt_telefon.setText(veri[3] or "")
+            self.txt_email.setText(veri[4] or "")
+            self.txt_vergi_dairesi.setText(veri[5] or "")
+            self.txt_vergi_no.setText(veri[6] or "")
+            self.txt_ulke.setText(veri[7] or "")
+            self.txt_sehir.setText(veri[8] or "")
+            self.txt_ilce.setText(veri[9] or "")
+            self.txt_adres.setPlainText(veri[10] or "")
+        except Exception as exc:
+            QMessageBox.critical(self, "Hata", f"Cari verileri yüklenirken bir hata oluştu:\n{exc}")
+            self.reject()
+
     def _on_save(self):
         cari_kodu = self.txt_kod.text().strip()
         firma_unvani = self.txt_unvan.text().strip()
@@ -104,20 +133,40 @@ class NewCariDialog(QDialog):
                 return
 
         try:
-            CariModel.ekle(
-                cari_kodu,
-                firma_unvani,
-                yetkili,
-                telefon,
-                email,
-                vergi_dairesi,
-                vergi_no,
-                ulke,
-                sehir,
-                ilce,
-                adres,
-            )
-            QMessageBox.information(self, "Başarılı", "Cari başarıyla eklendi.")
+            if self.is_edit_mode:
+                CariModel.guncelle(
+                    self.cari_kodu,
+                    firma_unvani,
+                    yetkili,
+                    telefon,
+                    email,
+                    vergi_dairesi,
+                    vergi_no,
+                    ulke,
+                    sehir,
+                    ilce,
+                    adres,
+                )
+                QMessageBox.information(self, "Başarılı", "Cari başarıyla güncellendi.")
+            else:
+                CariModel.ekle(
+                    cari_kodu,
+                    firma_unvani,
+                    yetkili,
+                    telefon,
+                    email,
+                    vergi_dairesi,
+                    vergi_no,
+                    ulke,
+                    sehir,
+                    ilce,
+                    adres,
+                )
+                QMessageBox.information(self, "Başarılı", "Cari başarıyla eklendi.")
+
             self.accept()
         except Exception as exc:
-            QMessageBox.critical(self, "Hata", f"Cari eklenirken bir hata oluştu:\n{exc}")
+            if self.is_edit_mode:
+                QMessageBox.critical(self, "Hata", f"Cari güncellenirken bir hata oluştu:\n{exc}")
+            else:
+                QMessageBox.critical(self, "Hata", f"Cari eklenirken bir hata oluştu:\n{exc}")
