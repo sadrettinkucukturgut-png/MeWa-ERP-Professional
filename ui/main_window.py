@@ -1,76 +1,30 @@
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QMainWindow,
-    QWidget,
+    QFrame,
     QHBoxLayout,
-    QVBoxLayout,
-)
-
-from core.tab_manager import TabManager
-from ui.dashboard_page import DashboardPage
-from shared.widgets.menu_button import MenuButton
-
-
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-
-        self.setWindowTitle("MeWa ERP Professional")
-        self.resize(1400, 800)
-
-        # Ana Widget
-        central = QWidget()
-        self.setCentralWidget(central)
-
-        # Ana Yerleşim
-        ana_layout = QHBoxLayout(central)
-
-        # =========================
-        # SOL MENÜ
-        # =========================
-
-        menu = QVBoxLayout()
-
-        buttons = [
-            "🏠 Dashboard",
-            "👥 Cari Yönetimi",
-            "📦 Ürünler",
-            "💰 Finans",
-            "🌍 İhracat",
-            "📊 Raporlar",
-            "⚙️ Ayarlar",
-        ]
-
-        for text in buttons:
-            btn = MenuButton(text)
-            menu.addWidget(btn)
-
-        menu.addStretch()
-
-        # =========================
-        # TAB SİSTEMİ
-        # =========================
-
-        self.tabs = TabManager()
-
-        dashboard = DashboardPage()
-        self.tabs.open_tab(dashboard, "🏠 Dashboard")
-
-        # =========================
-
-        ana_layout.addLayout(menu, 1)
-        ana_layout.addWidget(self.tabs, 4)
-        from PySide6.QtWidgets import (
+    QLabel,
     QMainWindow,
-    QWidget,
-    QHBoxLayout,
+    QToolButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from core.tab_manager import TabManager
 from shared.widgets.menu_button import MenuButton
-
+from ui.cari_list_page import CariListPage
 from ui.dashboard_page import DashboardPage
 from ui.cari_page import CariPage
+
+
+class PlaceholderPage(QWidget):
+    def __init__(self, title: str):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 40, 40, 40)
+        label = QLabel(f"{title}\n\nYakında eklenecek")
+        label.setAlignment(Qt.AlignCenter)
+        label.setStyleSheet("font-size: 20px; color: #64748b;")
+        layout.addWidget(label)
 
 
 class MainWindow(QMainWindow):
@@ -84,62 +38,155 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         main_layout = QHBoxLayout(central)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # ==========================
-        # SOL MENÜ
-        # ==========================
+        self.sidebar = QFrame()
+        self.sidebar.setStyleSheet(
+            "QFrame{background-color:#0f172a; border:none;}"
+        )
+        sidebar_layout = QVBoxLayout(self.sidebar)
+        sidebar_layout.setContentsMargins(12, 12, 12, 12)
+        sidebar_layout.setSpacing(8)
 
-        menu_layout = QVBoxLayout()
+        title = QLabel("MeWa ERP")
+        title.setStyleSheet("font-size: 20px; font-weight: bold; color: white; padding: 8px 4px;")
+        sidebar_layout.addWidget(title)
 
-        self.btn_dashboard = MenuButton("🏠 Dashboard")
-        self.btn_cari = MenuButton("👥 Cari Yönetimi")
-        self.btn_urun = MenuButton("📦 Ürünler")
-        self.btn_finans = MenuButton("💰 Finans")
-        self.btn_ihracat = MenuButton("🌍 İhracat")
-        self.btn_rapor = MenuButton("📊 Raporlar")
-        self.btn_ayar = MenuButton("⚙ Ayarlar")
+        self.menu_groups = []
+        self.group_buttons = {}
 
-        menu_buttons = [
-            self.btn_dashboard,
-            self.btn_cari,
-            self.btn_urun,
-            self.btn_finans,
-            self.btn_ihracat,
-            self.btn_rapor,
-            self.btn_ayar,
+        menu_items = [
+            ("📊 ANA SAYFA", [("🏠 Dashboard", self.open_dashboard)]),
+            (
+                "👥 CARİ",
+                [
+                    ("📋 Cari Kartları", self.open_cari_list),
+                    ("📄 Cari Hareketleri", self.open_cari_hareketleri),
+                ],
+            ),
+            (
+                "📦 STOK",
+                [
+                    ("📦 Stok Kartları", self.open_stock_list),
+                    ("🗂 Kategoriler", self.open_stock_categories),
+                ],
+            ),
+            (
+                "🛒 SATIN ALMA",
+                [
+                    ("🧾 Siparişler", self.open_purchase_orders),
+                    ("🚚 İrsaliyeler", self.open_purchase_delivery_notes),
+                    ("🧾 Faturalar", self.open_purchase_invoices),
+                ],
+            ),
+            (
+                "💰 SATIŞ",
+                [
+                    ("📝 Teklifler", self.open_sales_quotes),
+                    ("🧾 Siparişler", self.open_sales_orders),
+                    ("🚚 İrsaliyeler", self.open_sales_delivery_notes),
+                    ("🧾 Faturalar", self.open_sales_invoices),
+                ],
+            ),
+            (
+                "🏦 FİNANS",
+                [
+                    ("💵 Kasa", self.open_cash),
+                    ("🏦 Banka", self.open_bank),
+                    ("🧾 Çek/Senet", self.open_checks),
+                ],
+            ),
+            ("📈 RAPORLAR", [("📊 Raporlar", self.open_reports)]),
+            ("⚙ AYARLAR", [("⚙ Ayarlar", self.open_settings)]),
         ]
 
-        for btn in menu_buttons:
-            menu_layout.addWidget(btn)
+        for group_title, items in menu_items:
+            group_button = QToolButton()
+            group_button.setText(group_title)
+            group_button.setCheckable(True)
+            group_button.setChecked(True)
+            group_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            group_button.setAutoRaise(True)
+            group_button.setStyleSheet(
+                "QToolButton{color:white; font-weight:bold; padding:6px; text-align:left;}"
+                "QToolButton:checked{background-color:#1e293b;}"
+            )
+            sidebar_layout.addWidget(group_button)
+            self.group_buttons[group_title] = group_button
 
-        menu_layout.addStretch()
+            group_container = QWidget()
+            group_layout = QVBoxLayout(group_container)
+            group_layout.setContentsMargins(8, 0, 8, 8)
+            group_layout.setSpacing(4)
 
-        # ==========================
-        # TAB SİSTEMİ
-        # ==========================
+            for label, callback in items:
+                btn = MenuButton(label)
+                btn.clicked.connect(callback)
+                group_layout.addWidget(btn)
+
+            sidebar_layout.addWidget(group_container)
+            self.menu_groups.append((group_button, group_container))
+
+            group_button.toggled.connect(group_container.setVisible)
+
+        sidebar_layout.addStretch()
 
         self.tabs = TabManager()
-
         self.dashboard = DashboardPage()
         self.tabs.open_tab(self.dashboard, "🏠 Dashboard")
 
-        # ==========================
-        # BUTON OLAYLARI
-        # ==========================
-
-        self.btn_dashboard.clicked.connect(self.open_dashboard)
-        self.btn_cari.clicked.connect(self.open_cari)
-
-        # ==========================
-
-        main_layout.addLayout(menu_layout, 1)
+        main_layout.addWidget(self.sidebar, 1)
         main_layout.addWidget(self.tabs, 4)
-
-    # -------------------------
 
     def open_dashboard(self):
         self.tabs.open_tab(self.dashboard, "🏠 Dashboard")
 
-    def open_cari(self):
-        page = CariPage()
-        self.tabs.open_tab(page, "👥 Cari Yönetimi")
+    def open_cari_list(self):
+        page = CariListPage()
+        self.tabs.open_tab(page, "📋 Cari Kartları")
+
+    def open_cari_hareketleri(self):
+        self.tabs.open_tab(PlaceholderPage("Cari Hareketleri"), "📄 Cari Hareketleri")
+
+    def open_stock_list(self):
+        self.tabs.open_tab(PlaceholderPage("Stok Kartları"), "📦 Stok Kartları")
+
+    def open_stock_categories(self):
+        self.tabs.open_tab(PlaceholderPage("Kategoriler"), "🗂 Kategoriler")
+
+    def open_purchase_orders(self):
+        self.tabs.open_tab(PlaceholderPage("Satın Alma Siparişleri"), "🧾 Siparişler")
+
+    def open_purchase_delivery_notes(self):
+        self.tabs.open_tab(PlaceholderPage("Satın Alma İrsaliyeleri"), "🚚 İrsaliyeler")
+
+    def open_purchase_invoices(self):
+        self.tabs.open_tab(PlaceholderPage("Satın Alma Faturaları"), "🧾 Faturalar")
+
+    def open_sales_quotes(self):
+        self.tabs.open_tab(PlaceholderPage("Teklifler"), "📝 Teklifler")
+
+    def open_sales_orders(self):
+        self.tabs.open_tab(PlaceholderPage("Satış Siparişleri"), "🧾 Siparişler")
+
+    def open_sales_delivery_notes(self):
+        self.tabs.open_tab(PlaceholderPage("Satış İrsaliyeleri"), "🚚 İrsaliyeler")
+
+    def open_sales_invoices(self):
+        self.tabs.open_tab(PlaceholderPage("Satış Faturaları"), "🧾 Faturalar")
+
+    def open_cash(self):
+        self.tabs.open_tab(PlaceholderPage("Kasa"), "💵 Kasa")
+
+    def open_bank(self):
+        self.tabs.open_tab(PlaceholderPage("Banka"), "🏦 Banka")
+
+    def open_checks(self):
+        self.tabs.open_tab(PlaceholderPage("Çek/Senet"), "🧾 Çek/Senet")
+
+    def open_reports(self):
+        self.tabs.open_tab(PlaceholderPage("Raporlar"), "📊 Raporlar")
+
+    def open_settings(self):
+        self.tabs.open_tab(PlaceholderPage("Ayarlar"), "⚙ Ayarlar")
