@@ -4,6 +4,9 @@ import sqlite3
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QFileDialog,
+    QFrame,
+    QGridLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
@@ -11,6 +14,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QTableWidget,
     QTableWidgetItem,
+    QToolBar,
     QVBoxLayout,
     QWidget,
 )
@@ -56,6 +60,62 @@ class CariListPage(QWidget):
         self.search_input.textChanged.connect(self._handle_search)
         layout.addWidget(self.search_input)
 
+        self.toolbar = QToolBar()
+        self.toolbar.setMovable(False)
+        layout.addWidget(self.toolbar)
+
+        self.action_yeni_cari = QAction("➕ Yeni Cari", self)
+        self.action_yeni_cari.triggered.connect(self._yeni_cari_ekle)
+        self.toolbar.addAction(self.action_yeni_cari)
+
+        self.toolbar.addSeparator()
+
+        self.action_excel = QAction("📄 Excel'e Aktar", self)
+        self.action_excel.triggered.connect(self._export_to_excel)
+        self.toolbar.addAction(self.action_excel)
+
+        self.action_pdf = QAction("🖨 PDF", self)
+        self.toolbar.addAction(self.action_pdf)
+
+        self.action_print = QAction("🖨 Yazdır", self)
+        self.toolbar.addAction(self.action_print)
+
+        self.stats_layout = QGridLayout()
+        self.stats_layout.setSpacing(12)
+        self.stats_container = QFrame()
+        self.stats_container.setStyleSheet(
+            "QFrame{background-color:#f5f7fb; border:1px solid #dfe6ee; border-radius:12px;}"
+        )
+        self.stats_container.setLayout(self.stats_layout)
+        layout.addWidget(self.stats_container)
+
+        self.stats_cards = []
+        for title, icon in [
+            ("Toplam Cari", "📋"),
+            ("Firma Sayısı", "🏢"),
+            ("Şehir Sayısı", "🏙"),
+            ("Ülke Sayısı", "🌍"),
+        ]:
+            card = QFrame()
+            card.setStyleSheet(
+                "QFrame{background-color:white; border:1px solid #e2e8f0; border-radius:12px;}"
+            )
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(14, 14, 14, 14)
+            card_layout.setSpacing(6)
+
+            value_label = QLabel("0")
+            value_label.setObjectName("statValue")
+            value_label.setStyleSheet("font-size: 22px; font-weight: bold; color: #1f2937;")
+            title_label = QLabel(f"{icon} {title}")
+            title_label.setStyleSheet("font-size: 12px; color: #64748b;")
+
+            card_layout.addWidget(value_label)
+            card_layout.addWidget(title_label)
+
+            self.stats_layout.addWidget(card, 0, len(self.stats_cards))
+            self.stats_cards.append((title, value_label))
+
         self.cari_table = QTableWidget()
         self.cari_table.setObjectName("cariTable")
         self.cari_table.setColumnCount(5)
@@ -89,7 +149,8 @@ class CariListPage(QWidget):
                 firma_unvani,
                 yetkili,
                 telefon,
-                sehir
+                sehir,
+                ulke
             FROM cariler
         """
 
@@ -124,8 +185,66 @@ class CariListPage(QWidget):
                     QTableWidgetItem("" if deger is None else str(deger)),
                 )
 
+        self._update_statistics(veriler)
+
+    def _update_statistics(self, veriler):
+        toplam_cari = len(veriler)
+        firma_sayisi = len({veri[1] for veri in veriler if veri[1]})
+        sehir_sayisi = len({veri[4] for veri in veriler if veri[4]})
+        ulke_sayisi = len({veri[5] for veri in veriler if veri[5]})
+
+        self.stats_cards[0][1].setText(str(toplam_cari))
+        self.stats_cards[1][1].setText(str(firma_sayisi))
+        self.stats_cards[2][1].setText(str(sehir_sayisi))
+        self.stats_cards[3][1].setText(str(ulke_sayisi))
+
     def _handle_search(self, text: str):
         self.load_cari_list(text)
+
+    def _yeni_cari_ekle(self):
+        dialog = NewCariDialog()
+        if dialog.exec():
+            self.load_cari_list(self.search_input.text())
+
+    def _export_to_excel(self):
+        try:
+            from openpyxl import Workbook  # type: ignore
+        except ImportError:
+            QMessageBox.critical(self, "Hata", "openpyxl yüklü değil. Lütfen pip install openpyxl ile kurun.")
+            return
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Excel Dosyasını Kaydet",
+            "Cari_Listesi.xlsx",
+            "Excel Dosyaları (*.xlsx)",
+        )
+        if not save_path:
+            return
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Cari Listesi"
+
+        headers = [
+            "Cari Kodu",
+            "Firma Ünvanı",
+            "Yetkili",
+            "Telefon",
+            "Şehir",
+            "Ülke",
+        ]
+        sheet.append(headers)
+
+        for row in range(self.cari_table.rowCount()):
+            values = []
+            for col in range(self.cari_table.columnCount()):
+                item = self.cari_table.item(row, col)
+                values.append("" if item is None else item.text())
+            sheet.append(values)
+
+        workbook.save(save_path)
+        QMessageBox.information(self, "Başarılı", "Excel dosyası başarıyla export edildi.")
 
     def _get_selected_cari_kodu(self):
         selected_row = self.cari_table.currentRow()
