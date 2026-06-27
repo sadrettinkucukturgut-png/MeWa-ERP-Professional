@@ -83,7 +83,7 @@ class NewSupplierDialog(QDialog):
             ("Telefon", self.phone_input),
             ("WhatsApp", self.whatsapp_input),
             ("E-Posta", self.email_input),
-            ("Website", self.website_input),
+            ("Web Sitesi", self.website_input),
             ("Vergi Dairesi", self.tax_office_input),
             ("Vergi No", self.tax_number_input),
             ("Ülke", self.country_input),

@@ -7,6 +7,8 @@ from PySide6.QtGui import QColor, QFont, QPageLayout, QPageSize, QPainter, QPixm
 from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
+from shared.app_assets import get_company_logo_path
+
 
 class ExportService:
     @staticmethod
@@ -170,16 +172,9 @@ class ExportService:
                 if not pixmap.isNull():
                     return pixmap
 
-        for candidate in [
-            Path("assets/logo.png"),
-            Path("assets/logo.jpg"),
-            Path("assets/logo.jpeg"),
-            Path("assets/MeWaLogo.png"),
-            Path("logo.png"),
-            Path("logo.jpg"),
-        ]:
-            if candidate.exists():
-                pixmap = QPixmap(str(candidate))
-                if not pixmap.isNull():
-                    return pixmap
+        candidate = get_company_logo_path()
+        if candidate.exists():
+            pixmap = QPixmap(str(candidate))
+            if not pixmap.isNull():
+                return pixmap
         return None

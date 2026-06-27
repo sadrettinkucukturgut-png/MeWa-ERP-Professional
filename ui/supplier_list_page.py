@@ -7,7 +7,7 @@ from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
-    QHeaderView,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMenu,
@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
 from services.excel_service import ExcelService
 from services.pdf_service import PDFService
 from services.print_service import PrintService
+from shared.widgets.table_column_state import add_layout_lock_toggle, apply_table_column_standard
+from shared.widgets.table_visual import apply_list_table_visuals, create_record_count_label, set_record_count
 from ui.new_supplier_dialog import NewSupplierDialog
 
 
@@ -138,21 +140,38 @@ class SupplierListPage(QWidget):
         self.supplier_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.supplier_table.setSelectionMode(QTableWidget.SingleSelection)
         self.supplier_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.supplier_table.setSortingEnabled(False)
+        self.supplier_table.setSortingEnabled(True)
         self.supplier_table.verticalHeader().setVisible(False)
         self.supplier_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.supplier_table.doubleClicked.connect(self.supplier_ac)
         self.supplier_table.customContextMenuRequested.connect(self._show_context_menu)
         self.supplier_table.selectionModel().selectionChanged.connect(self._update_whatsapp_action_state)
-
-        header = self.supplier_table.horizontalHeader()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(QHeaderView.Stretch)
+        apply_list_table_visuals(self.supplier_table)
 
         self.settings = QSettings("MeWa", "ERP")
         self._restore_column_visibility()
+        apply_table_column_standard(
+            self.supplier_table,
+            self.settings,
+            "supplier_table",
+            keep_last_column_stretch=False,
+        )
+        self.action_layout_lock = add_layout_lock_toggle(
+            self.toolbar,
+            self.supplier_table,
+            self.settings,
+            "supplier_table",
+            self,
+            keep_last_column_stretch=False,
+        )
         self._update_whatsapp_action_state()
         layout.addWidget(self.supplier_table)
+
+        footer_layout = QHBoxLayout()
+        footer_layout.addStretch()
+        self.record_count_label = create_record_count_label()
+        footer_layout.addWidget(self.record_count_label)
+        layout.addLayout(footer_layout)
 
     def load_supplier_list(self, filter_text: str = ""):
         query = """
@@ -193,6 +212,8 @@ class SupplierListPage(QWidget):
             cursor.execute(query, params)
             veriler = cursor.fetchall()
 
+        was_sorting_enabled = self.supplier_table.isSortingEnabled()
+        self.supplier_table.setSortingEnabled(False)
         self.supplier_table.setRowCount(len(veriler))
         for satir, veri in enumerate(veriler):
             for sutun, deger in enumerate(veri):
@@ -201,6 +222,9 @@ class SupplierListPage(QWidget):
                     sutun,
                     QTableWidgetItem("" if deger is None else str(deger)),
                 )
+
+        self.supplier_table.setSortingEnabled(was_sorting_enabled)
+        set_record_count(self.record_count_label, len(veriler))
 
         self._update_statistics(veriler)
 

@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QGridLayout,
-    QHeaderView,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMenu,
@@ -22,6 +22,8 @@ from models.stock_model import StockModel
 from services.excel_service import ExcelService
 from services.pdf_service import PDFService
 from services.print_service import PrintService
+from shared.widgets.table_column_state import add_layout_lock_toggle, apply_table_column_standard
+from shared.widgets.table_visual import apply_list_table_visuals, create_record_count_label, set_record_count
 from ui.new_stock_dialog import NewStockDialog
 
 
@@ -141,19 +143,36 @@ class StockListPage(QWidget):
         self.stok_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.stok_table.setSelectionMode(QTableWidget.SingleSelection)
         self.stok_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.stok_table.setSortingEnabled(False)
+        self.stok_table.setSortingEnabled(True)
         self.stok_table.verticalHeader().setVisible(False)
         self.stok_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.stok_table.doubleClicked.connect(self.stok_ac)
         self.stok_table.customContextMenuRequested.connect(self._show_context_menu)
-
-        header = self.stok_table.horizontalHeader()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(QHeaderView.Stretch)
+        apply_list_table_visuals(self.stok_table)
 
         self.settings = QSettings("MeWa", "ERP")
         self._restore_column_visibility()
+        apply_table_column_standard(
+            self.stok_table,
+            self.settings,
+            "stock_table",
+            keep_last_column_stretch=False,
+        )
+        self.action_layout_lock = add_layout_lock_toggle(
+            self.toolbar,
+            self.stok_table,
+            self.settings,
+            "stock_table",
+            self,
+            keep_last_column_stretch=False,
+        )
         layout.addWidget(self.stok_table)
+
+        footer_layout = QHBoxLayout()
+        footer_layout.addStretch()
+        self.record_count_label = create_record_count_label()
+        footer_layout.addWidget(self.record_count_label)
+        layout.addLayout(footer_layout)
 
     def load_stock_list(self, filter_text: str = ""):
         query = """
@@ -200,6 +219,8 @@ class StockListPage(QWidget):
             cursor.execute(query, params)
             veriler = cursor.fetchall()
 
+        was_sorting_enabled = self.stok_table.isSortingEnabled()
+        self.stok_table.setSortingEnabled(False)
         self.stok_table.setRowCount(len(veriler))
 
         for satir, veri in enumerate(veriler):
@@ -222,6 +243,9 @@ class StockListPage(QWidget):
                     sutun,
                     QTableWidgetItem("" if deger is None else str(deger)),
                 )
+
+        self.stok_table.setSortingEnabled(was_sorting_enabled)
+        set_record_count(self.record_count_label, len(veriler))
 
         self._update_statistics(veriler)
 

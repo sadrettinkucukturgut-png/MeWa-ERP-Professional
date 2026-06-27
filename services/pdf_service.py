@@ -1,4 +1,7 @@
 from datetime import datetime
+import os
+import traceback
+from io import BytesIO
 from pathlib import Path
 from typing import Sequence
 
@@ -9,10 +12,11 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+from shared.app_assets import get_company_logo_path
 
 
 class PDFService:
@@ -40,7 +44,37 @@ class PDFService:
         if not save_path:
             return False
 
+        success, error_message = PDFService.generate_pdf_to_path(
+            headers=headers,
+            rows=rows,
+            save_path=save_path,
+            title=title,
+            logo_path=logo_path,
+        )
+        if not success:
+            QMessageBox.critical(parent, "Hata", f"PDF oluşturulurken bir hata oluştu:\n{error_message}")
+            return False
+
         try:
+            QMessageBox.information(parent, "Başarılı", "PDF dosyası başarıyla export edildi.")
+            return True
+        except Exception:
+            return True
+
+    @staticmethod
+    def generate_pdf_to_path(
+        headers: Sequence[str],
+        rows: Sequence[Sequence[object]],
+        save_path: str,
+        title: str,
+        logo_path: str | None = None,
+    ) -> tuple[bool, str | None]:
+        try:
+            PDFService._register_fonts()
+            resolved_logo = PDFService._load_logo(logo_path)
+            print("Logo:", resolved_logo)
+            print("Exists:", os.path.exists(resolved_logo) if isinstance(resolved_logo, str) else False)
+
             doc = SimpleDocTemplate(
                 save_path,
                 pagesize=landscape(A4),
@@ -50,7 +84,7 @@ class PDFService:
                 bottomMargin=0.6 * inch,
             )
             story = []
-            story.extend(PDFService._build_header(title, logo_path))
+            story.extend(PDFService._build_header(title, resolved_logo))
 
             if headers:
                 table_data = [[str(header) for header in headers]]
@@ -87,11 +121,11 @@ class PDFService:
 
             story.extend(PDFService._build_footer(len(rows)))
             doc.build(story, onFirstPage=PDFService._draw_canvas, onLaterPages=PDFService._draw_canvas)
-            QMessageBox.information(parent, "Başarılı", "PDF dosyası başarıyla export edildi.")
-            return True
-        except Exception as exc:  # pragma: no cover - defensive fallback
-            QMessageBox.critical(parent, "Hata", f"PDF oluşturulurken bir hata oluştu:\n{exc}")
-            return False
+            return True, None
+        except Exception as exc:
+            tb = traceback.format_exc()
+            print(tb)
+            return False, f"{exc}\n{tb}"
 
     @staticmethod
     def _register_fonts() -> None:
@@ -103,7 +137,7 @@ class PDFService:
             pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", "DejaVuSans-Bold.ttf"))
 
     @staticmethod
-    def _build_header(title: str, logo_path: str | None):
+    def _build_header(title: str, logo_source):
         styles = getSampleStyleSheet()
         title_style = ParagraphStyle(
             "CustomTitle",
@@ -125,9 +159,10 @@ class PDFService:
         )
 
         elements = []
-        logo = PDFService._load_logo(logo_path)
-        if logo is not None:
-            elements.append(Image(logo, width=1.0 * inch, height=1.0 * inch, hAlign="LEFT"))
+        if isinstance(logo_source, str):
+            elements.append(Image(logo_source, width=1.0 * inch, height=1.0 * inch, hAlign="LEFT"))
+        elif isinstance(logo_source, (bytes, bytearray)):
+            elements.append(Image(BytesIO(logo_source), width=1.0 * inch, height=1.0 * inch, hAlign="LEFT"))
         elements.append(Paragraph(title, title_style))
         elements.append(Paragraph(datetime.now().strftime("Tarih: %d.%m.%Y"), meta_style))
         elements.append(Paragraph(datetime.now().strftime("Saat: %H:%M"), meta_style))
@@ -186,18 +221,11 @@ class PDFService:
             if path.exists():
                 pixmap = QPixmap(str(path))
                 if not pixmap.isNull():
-                    return ImageReader(str(path))
+                    return str(path)
 
-        for candidate in [
-            Path("assets/logo.png"),
-            Path("assets/logo.jpg"),
-            Path("assets/logo.jpeg"),
-            Path("assets/MeWaLogo.png"),
-            Path("logo.png"),
-            Path("logo.jpg"),
-        ]:
-            if candidate.exists():
-                pixmap = QPixmap(str(candidate))
-                if not pixmap.isNull():
-                    return ImageReader(str(candidate))
+        candidate = get_company_logo_path()
+        if candidate.exists():
+            pixmap = QPixmap(str(candidate))
+            if not pixmap.isNull():
+                return str(candidate)
         return None

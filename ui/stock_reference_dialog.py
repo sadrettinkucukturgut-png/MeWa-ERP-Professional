@@ -25,7 +25,14 @@ class StockReferenceDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
 
-        label = QLabel(f"{self.reference_type.title()} ekle veya seç")
+        reference_labels = {
+            "category": "Kategori",
+            "brand": "Marka",
+            "warehouse": "Depo",
+        }
+        reference_name = reference_labels.get(self.reference_type, self.reference_type.title())
+
+        label = QLabel(f"{reference_name} ekle veya seç")
         layout.addWidget(label)
 
         self.input = QLineEdit()

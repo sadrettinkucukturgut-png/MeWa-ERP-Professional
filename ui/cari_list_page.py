@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QGridLayout,
-    QHeaderView,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMenu,
@@ -24,6 +24,8 @@ from models.cari_model import CariModel
 from services.excel_service import ExcelService
 from services.pdf_service import PDFService
 from services.print_service import PrintService
+from shared.widgets.table_column_state import add_layout_lock_toggle, apply_table_column_standard
+from shared.widgets.table_visual import apply_list_table_visuals, create_record_count_label, set_record_count
 from ui.new_cari_dialog import NewCariDialog
 
 
@@ -149,22 +151,39 @@ class CariListPage(QWidget):
         self.cari_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.cari_table.setSelectionMode(QTableWidget.SingleSelection)
         self.cari_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.cari_table.setSortingEnabled(False)
+        self.cari_table.setSortingEnabled(True)
         self.cari_table.verticalHeader().setVisible(False)
         self.cari_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.cari_table.doubleClicked.connect(self.cari_ac)
         self.cari_table.customContextMenuRequested.connect(self._show_context_menu)
         self.cari_table.selectionModel().selectionChanged.connect(self._update_whatsapp_action_state)
-
-        header = self.cari_table.horizontalHeader()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(QHeaderView.Stretch)
+        apply_list_table_visuals(self.cari_table)
 
         self.settings = QSettings("MeWa", "ERP")
         self._restore_column_visibility()
+        apply_table_column_standard(
+            self.cari_table,
+            self.settings,
+            "cari_table",
+            keep_last_column_stretch=False,
+        )
+        self.action_layout_lock = add_layout_lock_toggle(
+            self.toolbar,
+            self.cari_table,
+            self.settings,
+            "cari_table",
+            self,
+            keep_last_column_stretch=False,
+        )
         self._update_whatsapp_action_state()
 
         layout.addWidget(self.cari_table)
+
+        footer_layout = QHBoxLayout()
+        footer_layout.addStretch()
+        self.record_count_label = create_record_count_label()
+        footer_layout.addWidget(self.record_count_label)
+        layout.addLayout(footer_layout)
 
     def load_cari_list(self, filter_text: str = ""):
         query = """
@@ -200,6 +219,8 @@ class CariListPage(QWidget):
         veriler = cursor.fetchall()
         conn.close()
 
+        was_sorting_enabled = self.cari_table.isSortingEnabled()
+        self.cari_table.setSortingEnabled(False)
         self.cari_table.setRowCount(len(veriler))
 
         for satir, veri in enumerate(veriler):
@@ -209,6 +230,9 @@ class CariListPage(QWidget):
                     sutun,
                     QTableWidgetItem("" if deger is None else str(deger)),
                 )
+
+        self.cari_table.setSortingEnabled(was_sorting_enabled)
+        set_record_count(self.record_count_label, len(veriler))
 
         self._update_statistics(veriler)
 
