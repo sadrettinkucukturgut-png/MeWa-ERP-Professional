@@ -15,6 +15,7 @@ from shared.widgets.menu_button import MenuButton
 from ui.cari_list_page import CariListPage
 from ui.dashboard_page import DashboardPage
 from ui.stock_list_page import StockListPage
+from ui.supplier_list_page import SupplierListPage
 
 
 class PlaceholderPage(QWidget):
@@ -86,6 +87,12 @@ class MainWindow(QMainWindow):
                 [
                     ("📦 Stok Kartları", self.open_stock_list),
                     ("🗂 Kategoriler", self.open_stock_categories),
+                ],
+            ),
+            (
+                "🏭 TEDARİKÇİLER",
+                [
+                    ("📋 Tedarikçi Kartları", self.open_supplier_list),
                 ],
             ),
             (
@@ -177,6 +184,10 @@ class MainWindow(QMainWindow):
 
     def open_stock_categories(self):
         self.tabs.open_tab(PlaceholderPage("Kategoriler"), "🗂 Kategoriler")
+
+    def open_supplier_list(self):
+        page = SupplierListPage()
+        self.tabs.open_tab(page, "📋 Tedarikçi Kartları")
 
     def open_purchase_orders(self):
         self.tabs.open_tab(PlaceholderPage("Satın Alma Siparişleri"), "🧾 Siparişler")

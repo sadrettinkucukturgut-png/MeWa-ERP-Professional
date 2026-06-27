@@ -107,6 +107,36 @@ def create_database():
     )
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS suppliers(
+
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        supplier_code TEXT UNIQUE NOT NULL,
+        company_name TEXT NOT NULL,
+        contact_person TEXT NOT NULL,
+        phone TEXT,
+        whatsapp TEXT,
+        email TEXT,
+        website TEXT,
+        tax_office TEXT,
+        tax_number TEXT,
+        country TEXT,
+        city TEXT,
+        district TEXT,
+        address TEXT,
+        default_currency TEXT DEFAULT 'USD',
+        payment_term TEXT,
+        bank_name TEXT,
+        iban TEXT,
+        swift_code TEXT,
+        notes TEXT,
+
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+
+    )
+    """)
+
     _ensure_stock_currency_columns(cursor)
     _ensure_stock_reference_tables(cursor)
 
