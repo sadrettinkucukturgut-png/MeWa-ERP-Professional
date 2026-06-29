@@ -365,6 +365,30 @@ class PurchaseInvoiceModel(BaseCrud):
                     raise ValueError("Purchase invoice not found")
                 invoice_id = int(row[0])
 
+                # Roll back old stock effect and old stock movement logs before rewriting invoice.
+                cursor.execute(
+                    """
+                    SELECT stock_id, COALESCE(quantity, 0)
+                    FROM purchase_invoice_items
+                    WHERE invoice_id = ?
+                    """,
+                    (invoice_id,),
+                )
+                old_items = cursor.fetchall()
+                for old_stock_id, old_qty in old_items:
+                    sid = int(old_stock_id or 0)
+                    qty = float(old_qty or 0)
+                    if sid > 0 and qty > 0:
+                        cursor.execute(
+                            "UPDATE stoklar SET current_stock = COALESCE(current_stock, 0) - ? WHERE id = ?",
+                            (qty, sid),
+                        )
+
+                cursor.execute(
+                    "DELETE FROM stock_movements WHERE reference_type = ? AND reference_no = ?",
+                    ("PurchaseInvoice", existing_invoice_number),
+                )
+
                 cursor.execute(
                     """
                     UPDATE purchase_invoices
@@ -455,6 +479,17 @@ class PurchaseInvoiceModel(BaseCrud):
                 invoice_id = int(cursor.lastrowid)
 
             for item in clean_items:
+                stock_id = int(item.get("stock_id") or 0)
+                quantity = float(item.get("quantity") or 0)
+                row_warehouse = ""
+                if int(goods_receipt_id or 0) > 0 and int(item.get("goods_receipt_item_id") or 0) > 0:
+                    cursor.execute(
+                        "SELECT COALESCE(warehouse, '') FROM goods_receipt_items WHERE id = ?",
+                        (int(item.get("goods_receipt_item_id") or 0),),
+                    )
+                    wh_row = cursor.fetchone()
+                    row_warehouse = str((wh_row[0] if wh_row else "") or "")
+
                 cursor.execute(
                     """
                     INSERT INTO purchase_invoice_items(
@@ -473,8 +508,8 @@ class PurchaseInvoiceModel(BaseCrud):
                     (
                         invoice_id,
                         int(item.get("goods_receipt_item_id") or 0),
-                        int(item.get("stock_id") or 0),
-                        float(item.get("quantity") or 0),
+                        stock_id,
+                        quantity,
                         str(item.get("unit") or ""),
                         float(item.get("unit_price") or 0),
                         float(item.get("discount_percent") or 0),
@@ -483,6 +518,39 @@ class PurchaseInvoiceModel(BaseCrud):
                         now_value,
                     ),
                 )
+                invoice_line_id = int(cursor.lastrowid or 0)
+
+                if stock_id > 0 and quantity > 0:
+                    cursor.execute(
+                        "UPDATE stoklar SET current_stock = COALESCE(current_stock, 0) + ? WHERE id = ?",
+                        (quantity, stock_id),
+                    )
+                    cursor.execute(
+                        """
+                        INSERT INTO stock_movements(
+                            stock_id,
+                            movement_type,
+                            quantity,
+                            reference_type,
+                            reference_no,
+                            movement_date,
+                            warehouse,
+                            notes,
+                            created_at
+                        ) VALUES(?,?,?,?,?,?,?,?,?)
+                        """,
+                        (
+                            stock_id,
+                            "PURCHASE",
+                            quantity,
+                            "PurchaseInvoice",
+                            invoice_number,
+                            invoice_date,
+                            row_warehouse,
+                            f"Purchase Invoice {invoice_number} Line {invoice_line_id}",
+                            now_value,
+                        ),
+                    )
 
             cursor.execute(
                 """
@@ -534,6 +602,25 @@ class PurchaseInvoiceModel(BaseCrud):
             goods_receipt_id = int(row[0])
 
             cursor.execute(
+                """
+                SELECT pii.stock_id, COALESCE(pii.quantity, 0)
+                FROM purchase_invoice_items pii
+                INNER JOIN purchase_invoices pi ON pi.id = pii.invoice_id
+                WHERE pi.invoice_number = ?
+                """,
+                (invoice_number,),
+            )
+            stock_rows = cursor.fetchall()
+            for stock_id, qty in stock_rows:
+                sid = int(stock_id or 0)
+                amount = float(qty or 0)
+                if sid > 0 and amount > 0:
+                    cursor.execute(
+                        "UPDATE stoklar SET current_stock = COALESCE(current_stock, 0) - ? WHERE id = ?",
+                        (amount, sid),
+                    )
+
+            cursor.execute(
                 "UPDATE purchase_invoices SET status = ?, updated_at = ? WHERE invoice_number = ?",
                 ("Cancelled", cls._now(), invoice_number),
             )
@@ -544,6 +631,10 @@ class PurchaseInvoiceModel(BaseCrud):
                 WHERE reference_type = ? AND reference_no = ?
                 """,
                 ("Cancelled", "PurchaseInvoice", invoice_number),
+            )
+            cursor.execute(
+                "DELETE FROM stock_movements WHERE reference_type = ? AND reference_no = ?",
+                ("PurchaseInvoice", invoice_number),
             )
             conn.commit()
 

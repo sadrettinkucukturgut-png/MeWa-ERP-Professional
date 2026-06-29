@@ -3,6 +3,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -65,6 +66,8 @@ class NewStockDialog(QDialog):
         self.brand_combo = QComboBox()
         self.brand_combo.setEditable(True)
         self.brand_combo.setInsertPolicy(QComboBox.NoInsert)
+        self.hs_code_input = QLineEdit()
+        self.hs_code_input.setMaxLength(20)
         self.unit_input = QLineEdit()
         self.purchase_price_input = QLineEdit()
         self.purchase_currency_input = QComboBox()
@@ -75,15 +78,13 @@ class NewStockDialog(QDialog):
         self.sale_currency_input.addItems(["USD", "EUR", "TRY", "AED", "SAR", "GBP", "CNY", "RUB"])
         self.sale_currency_input.setCurrentText("USD")
         self.vat_rate_input = QLineEdit()
-        self.critical_stock_input = QLineEdit()
-        self.current_stock_input = QLineEdit()
-        self.warehouse_combo = QComboBox()
-        self.warehouse_combo.setEditable(True)
-        self.warehouse_combo.setInsertPolicy(QComboBox.NoInsert)
+        self.weight_input = QDoubleSpinBox()
+        self.weight_input.setDecimals(3)
+        self.weight_input.setMinimum(0.0)
+        self.weight_input.setMaximum(999999.999)
+        self.weight_input.setSingleStep(0.001)
         self.shelf_input = QLineEdit()
         self.origin_input = QLineEdit()
-        self.description_input = QTextEdit()
-        self.description_input.setFixedHeight(90)
 
         self.image_label = QLabel("Görsel yok")
         self.image_label.setFixedSize(120, 120)
@@ -118,25 +119,22 @@ class NewStockDialog(QDialog):
 
         category_widget = self._build_reference_widget(self.category_combo, "Kategori")
         brand_widget = self._build_reference_widget(self.brand_combo, "Marka")
-        warehouse_widget = self._build_reference_widget(self.warehouse_combo, "Depo")
 
         fields = [
             ("Stok Kodu*", self.stock_code_input),
             ("Barkod", self.barcode_input),
             ("Ürün Adı*", self.product_name_input),
             ("Kategori", category_widget),
+            ("HS Code", self.hs_code_input),
             ("Marka", brand_widget),
             ("Birim", self.unit_input),
             ("Alış Fiyatı", purchase_widget),
             ("Satış Fiyatı", sale_widget),
             ("KDV Oranı", self.vat_rate_input),
-            ("Kritik Stok", self.critical_stock_input),
-            ("Mevcut Stok", self.current_stock_input),
-            ("Depo", warehouse_widget),
+            ("Weight (KG)", self.weight_input),
             ("Raf", self.shelf_input),
             ("Menşei", self.origin_input),
             ("Ürün Görseli", image_widget),
-            ("Açıklama", self.description_input),
         ]
 
         for label, widget in fields:
@@ -181,16 +179,12 @@ class NewStockDialog(QDialog):
         self.category_combo.addItems(StockModel.get_categories())
         self.brand_combo.clear()
         self.brand_combo.addItems(StockModel.get_brands())
-        self.warehouse_combo.clear()
-        self.warehouse_combo.addItems(StockModel.get_warehouses())
 
     def _manage_reference(self, combo, title):
         if title == "Kategori":
             dialog = StockReferenceDialog("Kategori Yönetimi", "category")
-        elif title == "Marka":
-            dialog = StockReferenceDialog("Marka Yönetimi", "brand")
         else:
-            dialog = StockReferenceDialog("Depo Yönetimi", "warehouse")
+            dialog = StockReferenceDialog("Marka Yönetimi", "brand")
 
         if dialog.exec():
             self._load_reference_values()
@@ -224,19 +218,17 @@ class NewStockDialog(QDialog):
         self.barcode_input.setText(stok[1] or "")
         self.product_name_input.setText(stok[2] or "")
         self._set_combo_value(self.category_combo, stok[3])
-        self._set_combo_value(self.brand_combo, stok[4])
-        self.unit_input.setText(stok[5] or "")
-        self.purchase_price_input.setText(str(stok[6] or ""))
-        self.purchase_currency_input.setCurrentText(stok[7] or "USD")
-        self.sale_price_input.setText(str(stok[8] or ""))
-        self.sale_currency_input.setCurrentText(stok[9] or "USD")
-        self.vat_rate_input.setText(str(stok[10] or ""))
-        self.critical_stock_input.setText(str(stok[11] or ""))
-        self.current_stock_input.setText(str(stok[12] or ""))
-        self._set_combo_value(self.warehouse_combo, stok[13])
+        self.hs_code_input.setText(stok[4] or "")
+        self._set_combo_value(self.brand_combo, stok[5])
+        self.unit_input.setText(stok[6] or "")
+        self.purchase_price_input.setText(str(stok[7] or ""))
+        self.purchase_currency_input.setCurrentText(stok[8] or "USD")
+        self.sale_price_input.setText(str(stok[9] or ""))
+        self.sale_currency_input.setCurrentText(stok[10] or "USD")
+        self.vat_rate_input.setText(str(stok[11] or ""))
+        self.weight_input.setValue(float(stok[12] or 0))
         self.shelf_input.setText(stok[14] or "")
         self.origin_input.setText(stok[15] or "")
-        self.description_input.setPlainText(stok[16] or "")
         self.image_path = stok[17] or ""
         if self.image_path:
             pixmap = QPixmap(self.image_path)
@@ -271,6 +263,21 @@ class NewStockDialog(QDialog):
             QMessageBox.warning(self, "Uyarı", "Bu barkod başka bir stok kartında kullanılıyor.")
             return
 
+        hs_code = self.hs_code_input.text().strip()
+        if hs_code and (len(hs_code) > 20 or any(ch not in "0123456789." for ch in hs_code)):
+            QMessageBox.warning(self, "Uyarı", "HS Code en fazla 20 karakter olmalı ve sadece rakam ile nokta içermelidir.")
+            return
+
+        if self.weight_input.value() < 0:
+            QMessageBox.warning(self, "Uyarı", "Weight (KG) negatif olamaz.")
+            return
+
+        current_stock_value = "0"
+        if self.stock_code:
+            mevcut = StockModel.getir(self.stock_code)
+            if mevcut:
+                current_stock_value = str(mevcut[13] or 0)
+
         try:
             if self.stock_code:
                 StockModel.guncelle(
@@ -278,6 +285,7 @@ class NewStockDialog(QDialog):
                     barcode,
                     product_name,
                     self.category_combo.currentText().strip(),
+                    hs_code,
                     self.brand_combo.currentText().strip(),
                     self.unit_input.text().strip(),
                     self.purchase_price_input.text().strip(),
@@ -285,12 +293,11 @@ class NewStockDialog(QDialog):
                     self.sale_price_input.text().strip(),
                     self.sale_currency_input.currentText(),
                     self.vat_rate_input.text().strip(),
-                    self.critical_stock_input.text().strip(),
-                    self.current_stock_input.text().strip(),
-                    self.warehouse_combo.currentText().strip(),
+                    f"{self.weight_input.value():.3f}",
+                    current_stock_value,
                     self.shelf_input.text().strip(),
                     self.origin_input.text().strip(),
-                    self.description_input.toPlainText().strip(),
+                    "",
                     self.image_path,
                 )
             else:
@@ -299,6 +306,7 @@ class NewStockDialog(QDialog):
                     barcode,
                     product_name,
                     self.category_combo.currentText().strip(),
+                    hs_code,
                     self.brand_combo.currentText().strip(),
                     self.unit_input.text().strip(),
                     self.purchase_price_input.text().strip(),
@@ -306,12 +314,11 @@ class NewStockDialog(QDialog):
                     self.sale_price_input.text().strip(),
                     self.sale_currency_input.currentText(),
                     self.vat_rate_input.text().strip(),
-                    self.critical_stock_input.text().strip(),
-                    self.current_stock_input.text().strip(),
-                    self.warehouse_combo.currentText().strip(),
+                    f"{self.weight_input.value():.3f}",
+                    current_stock_value,
                     self.shelf_input.text().strip(),
                     self.origin_input.text().strip(),
-                    self.description_input.toPlainText().strip(),
+                    "",
                     self.image_path,
                 )
 

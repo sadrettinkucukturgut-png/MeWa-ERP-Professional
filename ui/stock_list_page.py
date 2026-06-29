@@ -50,7 +50,7 @@ class StockListPage(QWidget):
         layout.addWidget(search_label)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Stok Kodu, Barkod, Ürün Adı, Kategori, Marka veya Depo")
+        self.search_input.setPlaceholderText("Stok Kodu, Barkod, Ürün Adı, Kategori, HS Code veya Marka")
         self.search_input.textChanged.connect(self._handle_search)
         layout.addWidget(self.search_input)
 
@@ -98,8 +98,8 @@ class StockListPage(QWidget):
         self.stats_cards = []
         for title, icon in [
             ("Toplam Stok", "📦"),
-            ("Kritik Stok", "⚠"),
-            ("Depo Sayısı", "🏭"),
+            ("HS Kodlu Ürün", "🔢"),
+            ("Ağırlık Girilmiş", "⚖"),
             ("Toplam Değer", "💰"),
         ]:
             card = QFrame()
@@ -129,13 +129,16 @@ class StockListPage(QWidget):
             "Barkod",
             "Ürün Adı",
             "Kategori",
+            "HS Code",
             "Marka",
             "Birim",
             "Alış Fiyatı",
             "Satış Fiyatı",
+            "KDV",
+            "Weight (KG)",
             "Mevcut Stok",
-            "Kritik Stok",
-            "Depo",
+            "Raf",
+            "Menşei",
         ]
         self.stok_table.setColumnCount(len(self.column_labels))
         self.stok_table.setHorizontalHeaderLabels(self.column_labels)
@@ -181,15 +184,18 @@ class StockListPage(QWidget):
                 barcode,
                 product_name,
                 category,
+                hs_code,
                 brand,
                 unit,
                 purchase_price,
                 purchase_currency,
                 sale_price,
                 sale_currency,
+                vat_rate,
+                weight,
                 current_stock,
-                critical_stock,
-                warehouse
+                shelf,
+                origin
             FROM stoklar
         """
 
@@ -202,8 +208,8 @@ class StockListPage(QWidget):
                     LOWER(barcode) LIKE ? OR
                     LOWER(product_name) LIKE ? OR
                     LOWER(category) LIKE ? OR
+                    LOWER(COALESCE(hs_code, '')) LIKE ? OR
                     LOWER(brand) LIKE ? OR
-                    LOWER(warehouse) LIKE ? OR
                     LOWER(COALESCE(purchase_currency, '')) LIKE ? OR
                     LOWER(COALESCE(sale_currency, '')) LIKE ?
             """
@@ -231,11 +237,14 @@ class StockListPage(QWidget):
                 veri[3],
                 veri[4],
                 veri[5],
-                self._format_price_value(veri[6], veri[7]),
-                self._format_price_value(veri[8], veri[9]),
-                veri[10],
-                veri[11],
-                veri[12],
+                veri[6],
+                self._format_price_value(veri[7], veri[8]),
+                self._format_price_value(veri[9], veri[10]),
+                f"{float(veri[11] or 0):.2f}",
+                f"{float(veri[12] or 0):.3f}",
+                veri[13],
+                veri[14],
+                veri[15],
             ]
             for sutun, deger in enumerate(values):
                 self.stok_table.setItem(
@@ -251,17 +260,17 @@ class StockListPage(QWidget):
 
     def _update_statistics(self, veriler):
         toplam_stok = len(veriler)
-        kritik_stok = sum(1 for veri in veriler if veri[11] and veri[10] is not None and float(veri[10]) <= float(veri[11]))
-        depo_sayisi = len({veri[12] for veri in veriler if veri[12]})
+        hs_kodlu = sum(1 for veri in veriler if str(veri[4] or "").strip())
+        agirlikli = sum(1 for veri in veriler if float(veri[12] or 0) > 0)
         toplam_deger = sum(
-            float(veri[10] or 0) * float(veri[8] or 0)
+            float(veri[13] or 0) * float(veri[9] or 0)
             for veri in veriler
-            if veri[10] is not None and veri[8] is not None
+            if veri[13] is not None and veri[9] is not None
         )
 
         self.stats_cards[0][1].setText(str(toplam_stok))
-        self.stats_cards[1][1].setText(str(kritik_stok))
-        self.stats_cards[2][1].setText(str(depo_sayisi))
+        self.stats_cards[1][1].setText(str(hs_kodlu))
+        self.stats_cards[2][1].setText(str(agirlikli))
         self.stats_cards[3][1].setText(f"{toplam_deger:,.2f} USD")
 
     def _handle_search(self, text: str):
@@ -338,9 +347,11 @@ class StockListPage(QWidget):
             "Birim",
             "Alış Fiyatı",
             "Satış Fiyatı",
+            "KDV",
+            "Weight (KG)",
             "Mevcut Stok",
-            "Kritik Stok",
-            "Depo",
+            "Raf",
+            "Menşei",
         ]
         rows = []
         for row in range(self.stok_table.rowCount()):

@@ -32,19 +32,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from models.purchase_invoice_model import PurchaseInvoiceModel
+from models.export_sales_invoice_model import ExportSalesInvoiceModel
 from services.document_preview_engine import (
     DocumentLineItem,
     DocumentPreviewController,
     DocumentTemplate,
+    ProformaTemplateBuilder,
     build_template_signature,
     resolve_party_details,
 )
 from shared.widgets.cari_lookup_dialog import CariLookupDialog
 from shared.widgets.stock_lookup_dialog import StockLookupDialog
+from ui.base_document_dialog import BaseDocumentDialog
 
 
-class PurchaseInvoiceItemDelegate(QStyledItemDelegate):
+class ExportSalesInvoiceItemDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         editor = super().createEditor(parent, option, index)
         if editor is not None:
@@ -63,7 +65,7 @@ class PurchaseInvoiceItemDelegate(QStyledItemDelegate):
         return super().eventFilter(editor, event)
 
 
-class PurchaseInvoiceGrid(QTableWidget):
+class ExportSalesInvoiceGrid(QTableWidget):
     def keyPressEvent(self, event):
         handler = self.window()
         if handler is not None and hasattr(handler, "_handle_grid_key_press"):
@@ -72,7 +74,7 @@ class PurchaseInvoiceGrid(QTableWidget):
         super().keyPressEvent(event)
 
 
-class NewPurchaseInvoiceDialog(QDialog):
+class NewExportSalesInvoiceDialog(BaseDocumentDialog):
     COL_ROW_NO = 0
     COL_STOCK_CODE = 1
     COL_PRODUCT = 2
@@ -97,7 +99,7 @@ class NewPurchaseInvoiceDialog(QDialog):
         self._has_persisted_document = self.is_edit_mode
         self._last_saved_signature = ""
 
-        self.setWindowTitle("Alış Faturası Düzenle" if self.is_edit_mode else "Yeni Alış Faturası")
+        self.setWindowTitle("Yurtdışı Satış Faturası Düzenle" if self.is_edit_mode else "Yeni Yurtdışı Satış Faturası")
         available = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
         if available is not None:
             width = max(900, min(1180, int(available.width() * 0.92)))
@@ -111,7 +113,7 @@ class NewPurchaseInvoiceDialog(QDialog):
         if self.is_edit_mode and invoice_number:
             self._load_invoice(invoice_number)
         else:
-            self.invoice_number_input.setText(PurchaseInvoiceModel.invoice_number_generate())
+            self.invoice_number_input.setText(ExportSalesInvoiceModel.invoice_number_generate())
             self.invoice_date_input.setDate(QDate.currentDate())
             self.due_date_input.setDate(QDate.currentDate())
             self._add_product_row()
@@ -136,7 +138,7 @@ class NewPurchaseInvoiceDialog(QDialog):
         content_layout.setSpacing(14)
         content_layout.setSizeConstraint(QLayout.SetMinimumSize)
 
-        title = QLabel("🧾 Alış Faturası")
+        title = QLabel("🧾 Yurtdışı Satış Faturası")
         title.setStyleSheet("font-size:20px; font-weight:bold; color:#f8fafc;")
         content_layout.addWidget(title)
 
@@ -150,7 +152,7 @@ class NewPurchaseInvoiceDialog(QDialog):
         self.cari_input = QLineEdit()
         self.cari_input.setReadOnly(True)
         self.cari_input.installEventFilter(self)
-        self.supplier_input = self.cari_input
+        self.customer_input = self.cari_input
 
         self.cari_lookup_button = QToolButton()
         self.cari_lookup_button.setText("...")
@@ -201,8 +203,8 @@ class NewPurchaseInvoiceDialog(QDialog):
         self.notes_input = QTextEdit()
 
         form_layout.addRow("Fatura No", self.invoice_number_input)
-        form_layout.addRow("Cari", cari_widget)
-        form_layout.addRow("Cari Kodu", self.cari_kodu_input)
+        form_layout.addRow("Müşteri", cari_widget)
+        form_layout.addRow("Müşteri Kodu", self.cari_kodu_input)
         form_layout.addRow("Firma Ünvanı", self.company_name_input)
         form_layout.addRow("Fatura Tarihi", self.invoice_date_input)
         form_layout.addRow("Vade Tarihi", self.due_date_input)
@@ -212,7 +214,7 @@ class NewPurchaseInvoiceDialog(QDialog):
 
         content_layout.addWidget(form_widget)
 
-        self.product_table = PurchaseInvoiceGrid(self)
+        self.product_table = ExportSalesInvoiceGrid(self)
         self.product_table.setColumnCount(9)
         self.product_table.setHorizontalHeaderLabels(
             [
@@ -268,7 +270,7 @@ class NewPurchaseInvoiceDialog(QDialog):
         self.product_table.verticalHeader().setDefaultSectionSize(34)
         self.product_table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
         self.product_table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
-        self.product_table.setItemDelegate(PurchaseInvoiceItemDelegate(self.product_table))
+        self.product_table.setItemDelegate(ExportSalesInvoiceItemDelegate(self.product_table))
         self.product_table.setColumnWidth(self.COL_ROW_NO, 42)
         self.product_table.setColumnWidth(self.COL_STOCK_CODE, 120)
         self.product_table.setColumnWidth(self.COL_QTY, 90)
@@ -416,9 +418,6 @@ class NewPurchaseInvoiceDialog(QDialog):
         self._shortcut_close.setContext(Qt.WidgetWithChildrenShortcut)
         self._shortcut_close.activated.connect(self.reject)
 
-    def _supplier_record_by_id(self, supplier_id: int) -> Optional[Dict[str, Any]]:
-        return CariLookupDialog.get_cari_by_supplier_id(supplier_id)
-
     def _apply_cari_record(self, record: Optional[Dict[str, Any]]):
         self._selected_cari_record = record
         if record is None:
@@ -487,7 +486,7 @@ class NewPurchaseInvoiceDialog(QDialog):
         unit_price_item = self._ensure_table_item(row, self.COL_UNIT_PRICE, editable=True)
         purchase_price = float(stock.get("purchase_price_default") or 0)
         sale_price = float(stock.get("sales_price") or 0)
-        default_price = purchase_price if purchase_price > 0 else sale_price
+        default_price = sale_price if sale_price > 0 else purchase_price
         unit_price_item.setText(f"{default_price:.2f}")
 
         discount_item = self._ensure_table_item(row, self.COL_DISCOUNT, editable=True)
@@ -737,7 +736,7 @@ class NewPurchaseInvoiceDialog(QDialog):
         if not has_stock_line:
             return "En az bir stok satırı girilmelidir."
 
-        existing = PurchaseInvoiceModel.invoice_detail(invoice_number)
+        existing = ExportSalesInvoiceModel.invoice_detail(invoice_number)
         if existing is not None and not (self.is_edit_mode and invoice_number == self.invoice_number):
             return "Bu fatura numarası zaten kullanılıyor."
 
@@ -801,31 +800,22 @@ class NewPurchaseInvoiceDialog(QDialog):
         self.grand_total_value.setText(f"{grand_total:,.2f}")
 
     def _load_invoice(self, invoice_number: str):
-        invoice = PurchaseInvoiceModel.invoice_detail(invoice_number)
+        invoice = ExportSalesInvoiceModel.invoice_detail(invoice_number)
         if invoice is None:
-            QMessageBox.warning(self, "Uyarı", "Alış faturası bulunamadı.")
+            QMessageBox.warning(self, "Uyarı", "Yurtdışı satış faturası bulunamadı.")
             self.reject()
             return
 
-        availability_map: Dict[int, float] = {}
-        goods_receipt_id = int(invoice.get("goods_receipt_id") or 0)
-        if goods_receipt_id > 0:
-            for receipt_item in PurchaseInvoiceModel.goods_receipt_items_for_invoice(goods_receipt_id):
-                key = int(receipt_item.get("goods_receipt_item_id") or 0)
-                availability_map[key] = float(receipt_item.get("remaining_qty") or 0)
-
         self.invoice_number_input.setText(str(invoice.get("invoice_number") or ""))
-        supplier_record = self._supplier_record_by_id(int(invoice.get("supplier_id") or 0))
-        if supplier_record is None:
-            supplier_record = {
-                "supplier_id": int(invoice.get("supplier_id") or 0),
-                "cari_kodu": "",
-                "firma_unvani": str(invoice.get("supplier_name") or ""),
-                "payment_term": "",
-                "default_currency": str(invoice.get("currency") or "USD"),
-            }
-        self._apply_cari_record(supplier_record)
-        self.purchase_order_input.setText(str(invoice.get("purchase_order_number") or ""))
+        customer_record = {
+            "customer_id": int(invoice.get("customer_id") or 0),
+            "supplier_id": int(invoice.get("customer_id") or 0),
+            "cari_kodu": str(invoice.get("customer_code") or ""),
+            "firma_unvani": str(invoice.get("customer_name") or ""),
+            "payment_term": "",
+            "default_currency": str(invoice.get("currency") or "USD"),
+        }
+        self._apply_cari_record(customer_record)
 
         invoice_date = QDate.fromString(str(invoice.get("invoice_date") or ""), "yyyy-MM-dd")
         if invoice_date.isValid():
@@ -843,9 +833,8 @@ class NewPurchaseInvoiceDialog(QDialog):
         self.product_table.setRowCount(0)
         for item in invoice.get("items", []):
             invoice_qty = float(item.get("quantity") or 0)
-            gr_item_id = int(item.get("goods_receipt_item_id") or 0)
             self._append_item_row(
-                goods_receipt_item_id=gr_item_id,
+                goods_receipt_item_id=0,
                 stock_id=int(item.get("stock_id") or 0),
                 stock_code=str(item.get("stock_code") or ""),
                 product_name=str(item.get("product_name") or ""),
@@ -855,11 +844,6 @@ class NewPurchaseInvoiceDialog(QDialog):
                 discount=float(item.get("discount_percent") or 0),
                 vat=float(item.get("vat_percent") or 0),
             )
-            row = self.product_table.rowCount() - 1
-            qty_item = self.product_table.item(row, self.COL_QTY)
-            if qty_item is not None:
-                max_qty = invoice_qty + float(availability_map.get(gr_item_id, 0))
-                qty_item.setData(Qt.UserRole, max_qty)
         self.product_table.blockSignals(False)
         if self.product_table.rowCount() == 0:
             self._add_product_row()
@@ -884,24 +868,16 @@ class NewPurchaseInvoiceDialog(QDialog):
 
         entered_invoice_number = self.invoice_number_input.text().strip()
 
-        supplier_id = int(self._selected_cari_record.get("supplier_id") or 0) if self._selected_cari_record else 0
-        supplier_id = PurchaseInvoiceModel.resolve_or_create_supplier_id(
-            supplier_id=supplier_id,
+        customer_id = int(self._selected_cari_record.get("customer_id") or 0) if self._selected_cari_record else 0
+        customer_id = ExportSalesInvoiceModel.resolve_or_create_customer_id(
+            customer_id=customer_id,
             cari_kodu=str(self.cari_kodu_input.text().strip()),
             firma_unvani=str(self.company_name_input.text().strip() or self.cari_input.text().strip()),
             default_currency=str(self.currency_combo.currentText().strip() or "USD"),
-            payment_term=str(self.payment_term_input.text().strip()) if hasattr(self, "payment_term_input") else "",
-            yetkili="",
         )
-        if supplier_id <= 0:
+        if customer_id <= 0:
             QMessageBox.warning(self, "Uyarı", "Cari bilgisi geçerli değil.")
             return False
-
-        purchase_order_id = 0
-        if self.is_edit_mode:
-            existing = PurchaseInvoiceModel.invoice_detail(self.invoice_number or entered_invoice_number)
-            if existing is not None:
-                purchase_order_id = int(existing.get("purchase_order_id") or 0)
 
         items: List[Dict[str, Any]] = []
         for row in range(self.product_table.rowCount()):
@@ -914,7 +890,6 @@ class NewPurchaseInvoiceDialog(QDialog):
 
             items.append(
                 {
-                    "goods_receipt_item_id": 0,
                     "stock_id": int(stock_code_item.data(Qt.UserRole + 1) or 0),
                     "quantity": qty,
                     "unit": self.product_table.item(row, self.COL_UNIT).text().strip() if self.product_table.item(row, self.COL_UNIT) else "",
@@ -931,11 +906,9 @@ class NewPurchaseInvoiceDialog(QDialog):
         created_by = os.getenv("USERNAME") or os.getenv("USER") or "SYSTEM"
 
         try:
-            PurchaseInvoiceModel.save_invoice(
+            ExportSalesInvoiceModel.save_invoice(
                 invoice_number=entered_invoice_number,
-                supplier_id=supplier_id,
-                purchase_order_id=purchase_order_id,
-                goods_receipt_id=0,
+                customer_id=customer_id,
                 invoice_date=self.invoice_date_input.date().toString("yyyy-MM-dd"),
                 due_date=self.due_date_input.date().toString("yyyy-MM-dd"),
                 currency=self.currency_combo.currentText(),
@@ -952,12 +925,12 @@ class NewPurchaseInvoiceDialog(QDialog):
             self.preview_btn.setEnabled(True)
             self._last_saved_signature = build_template_signature(self._build_preview_template())
             if not close_on_success:
-                QMessageBox.information(self, "Bilgi", "Alış faturası başarıyla kaydedildi.")
+                QMessageBox.information(self, "Bilgi", "Yurtdışı satış faturası başarıyla kaydedildi.")
             if close_on_success:
                 self.accept()
             return True
         except Exception as exc:
-            QMessageBox.critical(self, "Hata", f"Alış faturası kaydedilemedi:\n{exc}")
+            QMessageBox.critical(self, "Hata", f"Yurtdışı satış faturası kaydedilemedi:\n{exc}")
             return False
 
     def _initialize_preview_state(self):
@@ -1034,8 +1007,8 @@ class NewPurchaseInvoiceDialog(QDialog):
 
         grand_total = subtotal - discount_total + vat_total
         return DocumentTemplate(
-            document_title="PURCHASE INVOICE",
-            filename_base=(self.invoice_number_input.text().strip() or "purchase_invoice").replace("/", "-"),
+            document_title="EXPORT SALES INVOICE",
+            filename_base=(self.invoice_number_input.text().strip() or "export_sales_invoice").replace("/", "-"),
             invoice_number=self.invoice_number_input.text().strip(),
             invoice_date=self.invoice_date_input.date().toString("yyyy-MM-dd"),
             due_date=self.due_date_input.date().toString("yyyy-MM-dd"),
@@ -1063,13 +1036,24 @@ class NewPurchaseInvoiceDialog(QDialog):
         if not invoice_no:
             return self._build_preview_template()
 
-        invoice = PurchaseInvoiceModel.invoice_detail(invoice_no)
+        invoice = ExportSalesInvoiceModel.invoice_detail(invoice_no)
+        if invoice is not None:
+            saved_id = int(invoice.get("id") or 0)
+            if saved_id > 0:
+                proforma_by_id = ProformaTemplateBuilder.from_saved_proforma_id(saved_id)
+                if proforma_by_id is not None:
+                    return proforma_by_id
+
+        proforma_template = ProformaTemplateBuilder.from_saved_proforma_number(invoice_no)
+        if proforma_template is not None:
+            return proforma_template
+
         if invoice is None:
             return self._build_preview_template()
 
-        supplier_name = str(invoice.get("supplier_name") or self.cari_input.text().strip())
-        supplier_code = str(getattr(self, "cari_kodu_input", None).text().strip() if hasattr(self, "cari_kodu_input") else "")
-        party = resolve_party_details(party_code=supplier_code, party_name=supplier_name)
+        customer_name = str(invoice.get("customer_name") or self.cari_input.text().strip())
+        customer_code = str(invoice.get("customer_code") or self.cari_kodu_input.text().strip())
+        party = resolve_party_details(party_code=customer_code, party_name=customer_name)
 
         items: list[DocumentLineItem] = []
         for item in invoice.get("items", []):
@@ -1093,21 +1077,21 @@ class NewPurchaseInvoiceDialog(QDialog):
             )
 
         return DocumentTemplate(
-            document_title="PURCHASE INVOICE",
-            filename_base=invoice_no.replace("/", "-") or "purchase_invoice",
+            document_title="EXPORT SALES INVOICE",
+            filename_base=invoice_no.replace("/", "-") or "export_sales_invoice",
             invoice_number=str(invoice.get("invoice_number") or invoice_no),
             invoice_date=str(invoice.get("invoice_date") or self.invoice_date_input.date().toString("yyyy-MM-dd")),
             due_date=str(invoice.get("due_date") or self.due_date_input.date().toString("yyyy-MM-dd")),
             currency=str(invoice.get("currency") or "USD"),
             exchange_rate=str(invoice.get("exchange_rate") or "1"),
-            customer_name=party.get("name") or supplier_name,
-            customer_company_name=party.get("name") or supplier_name,
+            customer_name=party.get("name") or customer_name,
+            customer_company_name=party.get("name") or customer_name,
             customer_address=party.get("address") or "",
             customer_country=party.get("country") or "",
             customer_tax_number=party.get("tax_number") or "",
             customer_phone=party.get("phone") or "",
             customer_email=party.get("email") or "",
-            customer_code=supplier_code,
+            customer_code=customer_code,
             customer_whatsapp=party.get("phone") or "",
             subtotal=f"{float(invoice.get('subtotal') or 0):.2f}",
             discount_total=f"{float(invoice.get('discount_total') or 0):.2f}",

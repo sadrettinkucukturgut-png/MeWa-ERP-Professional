@@ -24,6 +24,13 @@ from PySide6.QtWidgets import (
 )
 
 from models.goods_receipt_model import GoodsReceiptModel
+from services.document_preview_engine import (
+    DocumentLineItem,
+    DocumentPreviewController,
+    DocumentTemplate,
+    build_template_signature,
+    resolve_party_details,
+)
 
 
 class NewGoodsReceiptDialog(QDialog):
@@ -42,6 +49,9 @@ class NewGoodsReceiptDialog(QDialog):
         self.is_edit_mode = bool(receipt_number)
         self.saved_receipt_number = ""
         self._purchase_orders: List[Dict[str, Any]] = []
+        self._preview_controller: Optional[DocumentPreviewController] = None
+        self._has_persisted_document = self.is_edit_mode
+        self._last_saved_signature = ""
 
         self.setWindowTitle("Mal Kabul Düzenle" if self.is_edit_mode else "Yeni Mal Kabul")
         self.resize(1100, 820)
@@ -54,6 +64,8 @@ class NewGoodsReceiptDialog(QDialog):
         else:
             self.receipt_number_input.setText(GoodsReceiptModel.receipt_number_generate())
             self.receipt_date_input.setDate(QDate.currentDate())
+
+        self._initialize_preview_state()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -149,13 +161,16 @@ class NewGoodsReceiptDialog(QDialog):
 
         button_row = QHBoxLayout()
         button_row.addStretch()
-        save_btn = QPushButton("Kaydet")
-        save_btn.clicked.connect(self._on_save)
-        save_btn.setDefault(True)
-        cancel_btn = QPushButton("İptal")
-        cancel_btn.clicked.connect(self.reject)
-        button_row.addWidget(save_btn)
-        button_row.addWidget(cancel_btn)
+        self.preview_btn = QPushButton("Önizleme")
+        self.preview_btn.clicked.connect(self._on_preview)
+        self.save_btn = QPushButton("Kaydet")
+        self.save_btn.clicked.connect(self._on_save)
+        self.save_btn.setDefault(True)
+        self.cancel_btn = QPushButton("İptal")
+        self.cancel_btn.clicked.connect(self.reject)
+        button_row.addWidget(self.preview_btn)
+        button_row.addWidget(self.save_btn)
+        button_row.addWidget(self.cancel_btn)
         content_layout.addLayout(button_row)
 
         scroll.setWidget(content)
@@ -341,6 +356,9 @@ class NewGoodsReceiptDialog(QDialog):
         self._update_totals()
 
     def _on_save(self):
+        self._save_document(close_on_success=True)
+
+    def _save_document(self, close_on_success: bool) -> bool:
         po = self._selected_purchase_order() if not self.is_edit_mode else None
         purchase_order_id = int(po.get("id") or 0) if po else 0
         supplier_id = int(po.get("supplier_id") or 0) if po else 0
@@ -353,7 +371,7 @@ class NewGoodsReceiptDialog(QDialog):
 
         if purchase_order_id <= 0 or supplier_id <= 0:
             QMessageBox.warning(self, "Uyarı", "Satın alma siparişi seçimi zorunludur.")
-            return
+            return False
 
         items_payload: List[Dict[str, Any]] = []
         positive_rows = 0
@@ -386,7 +404,7 @@ class NewGoodsReceiptDialog(QDialog):
 
         if not self.is_edit_mode and positive_rows == 0:
             QMessageBox.warning(self, "Uyarı", "En az bir satırda teslim alınan miktar 0'dan büyük olmalıdır.")
-            return
+            return False
 
         created_by = os.getenv("USERNAME") or os.getenv("USER") or "SYSTEM"
 
@@ -403,9 +421,98 @@ class NewGoodsReceiptDialog(QDialog):
                 existing_receipt_number=self.receipt_number if self.is_edit_mode else None,
             )
             self.saved_receipt_number = self.receipt_number_input.text().strip()
-            self.accept()
+            self.receipt_number = self.saved_receipt_number
+            self.is_edit_mode = True
+            self._has_persisted_document = True
+            self._last_saved_signature = build_template_signature(self._build_preview_template())
+            if close_on_success:
+                self.accept()
+            return True
         except Exception as exc:
             QMessageBox.critical(self, "Hata", f"Mal kabul kaydı kaydedilemedi:\n{exc}")
+            return False
+
+    def _initialize_preview_state(self):
+        if self._has_persisted_document:
+            self._last_saved_signature = build_template_signature(self._build_preview_template())
+
+    def _has_unsaved_changes(self) -> bool:
+        if not self._has_persisted_document:
+            return False
+        current = build_template_signature(self._build_preview_template())
+        return current != self._last_saved_signature
+
+    def _get_preview_controller(self) -> DocumentPreviewController:
+        if self._preview_controller is None:
+            self._preview_controller = DocumentPreviewController(
+                parent=self,
+                has_saved_document=lambda: self._has_persisted_document,
+                has_unsaved_changes=self._has_unsaved_changes,
+                save_callback=self._save_document,
+                template_provider=self._build_preview_template,
+            )
+        return self._preview_controller
+
+    def _on_preview(self):
+        self._get_preview_controller().open_preview()
+
+    def _build_preview_template(self) -> DocumentTemplate:
+        supplier_name = self.supplier_input.text().strip()
+        party = resolve_party_details(party_code="", party_name=supplier_name)
+
+        items: list[DocumentLineItem] = []
+        subtotal = 0.0
+        discount_total = 0.0
+        vat_total = 0.0
+
+        for row in range(self.product_table.rowCount()):
+            stock_code = self.product_table.item(row, self.COL_STOCK_CODE).text().strip() if self.product_table.item(row, self.COL_STOCK_CODE) else ""
+            if not stock_code:
+                continue
+
+            received_qty = self._cell_float(row, self.COL_RECEIVED, 0)
+            if received_qty <= 0:
+                continue
+
+            description = self.product_table.item(row, self.COL_PRODUCT_NAME).text().strip() if self.product_table.item(row, self.COL_PRODUCT_NAME) else ""
+            unit = self.product_table.item(row, self.COL_UNIT).text().strip() if self.product_table.item(row, self.COL_UNIT) else ""
+
+            subtotal += received_qty
+
+            items.append(
+                DocumentLineItem(
+                    line_no=len(items) + 1,
+                    product_code=stock_code,
+                    description=description,
+                    quantity=f"{received_qty:.3f}".rstrip("0").rstrip("."),
+                    unit=unit,
+                    unit_price="0.00",
+                    discount="0.00%",
+                    vat="0.00%",
+                    total=f"{received_qty:.3f}".rstrip("0").rstrip("."),
+                )
+            )
+
+        grand_total = subtotal - discount_total + vat_total
+        return DocumentTemplate(
+            document_title="GOODS RECEIPT",
+            filename_base=(self.receipt_number_input.text().strip() or "goods_receipt").replace("/", "-"),
+            invoice_number=self.receipt_number_input.text().strip(),
+            invoice_date=self.receipt_date_input.date().toString("yyyy-MM-dd"),
+            customer_name=party.get("name") or supplier_name,
+            customer_company_name=party.get("name") or supplier_name,
+            customer_address=party.get("address") or "",
+            customer_country=party.get("country") or "",
+            customer_tax_number=party.get("tax_number") or "",
+            customer_phone=party.get("phone") or "",
+            customer_email=party.get("email") or "",
+            customer_whatsapp=party.get("phone") or "",
+            subtotal=f"{subtotal:.2f}",
+            discount_total=f"{discount_total:.2f}",
+            vat_total=f"{vat_total:.2f}",
+            grand_total=f"{grand_total:.2f}",
+            items=items,
+        )
 
     def get_saved_receipt_number(self) -> Optional[str]:
         return self.saved_receipt_number or None

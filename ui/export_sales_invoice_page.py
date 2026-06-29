@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List
+import traceback
 
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QAction
@@ -18,30 +18,31 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from models.goods_receipt_model import GoodsReceiptModel
-from shared.widgets.document_toolbar import DocumentToolbar
-from shared.app_assets import get_scaled_company_logo
+from models.export_sales_invoice_model import ExportSalesInvoiceModel
+from shared.widgets.base_document_toolbar import BaseDocumentToolbar
 from shared.widgets.table_column_state import apply_table_column_standard
 from shared.widgets.table_visual import apply_list_table_visuals, create_record_count_label, set_record_count
-from ui.new_goods_receipt_dialog import NewGoodsReceiptDialog
+from ui.base_document_page import BaseDocumentPage
+from ui.new_export_sales_invoice_dialog import NewExportSalesInvoiceDialog
+from ui.new_packing_list_dialog import NewPackingListDialog
 
 
-class GoodsReceiptPage(QWidget):
+class ExportSalesInvoicePage(BaseDocumentPage):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Mal Kabul")
+        self.setWindowTitle("Yurtdışı Satış Faturaları")
         self.resize(1280, 720)
         self._logo_path = self._resolve_logo_path()
         self._rows = []
         self._setup_ui()
-        self.load_receipts()
+        self.load_invoices()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        self.page_title = QLabel("📦 Mal Kabul")
+        self.page_title = QLabel("🧾 Yurtdışı Satış Faturaları")
         self.page_title.setAlignment(Qt.AlignCenter)
         self.page_title.setStyleSheet("font-size:24px; font-weight:bold; padding:8px 0;")
         layout.addWidget(self.page_title)
@@ -51,7 +52,7 @@ class GoodsReceiptPage(QWidget):
         layout.addWidget(search_label)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Fiş No, Sipariş, Tedarikçi, Depo veya Durum")
+        self.search_input.setPlaceholderText("Fatura No, Müşteri veya Durum")
         self.search_input.textChanged.connect(self._handle_search)
         layout.addWidget(self.search_input)
 
@@ -59,8 +60,8 @@ class GoodsReceiptPage(QWidget):
         self.toolbar.setMovable(False)
         layout.addWidget(self.toolbar)
 
-        self.action_new = QAction("➕ Yeni Mal Kabul", self)
-        self.action_new.triggered.connect(self._new_receipt)
+        self.action_new = QAction("➕ Yeni Yurtdışı Satış Faturası", self)
+        self.action_new.triggered.connect(self._new_invoice)
         self.toolbar.addAction(self.action_new)
 
         self.action_edit = QAction("✏️ Düzenle", self)
@@ -70,6 +71,10 @@ class GoodsReceiptPage(QWidget):
         self.action_cancel = QAction("🛑 İptal", self)
         self.action_cancel.triggered.connect(self._cancel_selected)
         self.toolbar.addAction(self.action_cancel)
+
+        self.action_create_packing_list = QAction("📦 Çeki Listesi Oluştur", self)
+        self.action_create_packing_list.triggered.connect(self._create_packing_list_from_selected)
+        self.toolbar.addAction(self.action_create_packing_list)
 
         self.toolbar.addSeparator()
 
@@ -86,10 +91,10 @@ class GoodsReceiptPage(QWidget):
 
         self.stats_cards = []
         for title, icon in [
-            ("Toplam Fiş", "📦"),
-            ("İşlenmiş", "✅"),
-            ("İptal", "🛑"),
-            ("Toplam Miktar", "🔢"),
+            ("Toplam Fatura", "🧾"),
+            ("İşlenmiş Fatura", "✅"),
+            ("İptal Fatura", "🛑"),
+            ("Toplam Tutar", "💰"),
         ]:
             card = QFrame()
             card.setStyleSheet(
@@ -111,15 +116,15 @@ class GoodsReceiptPage(QWidget):
             self.stats_cards.append((title, value))
 
         self.table = QTableWidget()
-        self.table.setObjectName("goodsReceiptTable")
+        self.table.setObjectName("exportSalesInvoiceTable")
         self.column_labels = [
-            "Fiş No",
-            "Satın Alma Siparişi",
-            "Tedarikçi",
-            "Fiş Tarihi",
-            "Depo",
+            "Fatura No",
+            "Fatura Tarihi",
+            "Müşteri",
+            "Cari Kod",
+            "Para Birimi",
+            "Genel Toplam",
             "Durum",
-            "Toplam Miktar",
             "Oluşturan",
         ]
         self.table.setColumnCount(len(self.column_labels))
@@ -140,15 +145,15 @@ class GoodsReceiptPage(QWidget):
         apply_table_column_standard(
             self.table,
             self.settings,
-            "goods_receipt_table",
+            "export_sales_invoice_table",
             keep_last_column_stretch=False,
         )
-        self.document_toolbar = DocumentToolbar(
+        self.document_toolbar = BaseDocumentToolbar(
             parent=self,
             toolbar=self.toolbar,
             table=self.table,
             settings=self.settings,
-            layout_key="goods_receipt_table",
+            layout_key="export_sales_invoice_table",
             payload_provider=self._document_payload,
         )
 
@@ -160,24 +165,16 @@ class GoodsReceiptPage(QWidget):
         footer.addWidget(self.record_count_label)
         layout.addLayout(footer)
 
-        watermark_layout = QHBoxLayout()
-        watermark_layout.addStretch()
-        self.logo_watermark = QLabel()
-        self.logo_watermark.setAlignment(Qt.AlignRight | Qt.AlignBottom)
-        watermark_layout.addWidget(self.logo_watermark)
-        layout.addLayout(watermark_layout)
-        self._update_logo_watermark()
-
         self.setStyleSheet(
             self.styleSheet()
             + "QLabel{color:#e2e8f0;} QLineEdit{background:#0f172a; color:#e2e8f0; border:1px solid #334155; border-radius:8px; padding:8px;}"
         )
 
     def _handle_search(self, text: str):
-        self.load_receipts(text)
+        self.load_invoices(text)
 
-    def load_receipts(self, keyword: str = ""):
-        rows = GoodsReceiptModel.list_receipts(keyword)
+    def load_invoices(self, keyword: str = ""):
+        rows = ExportSalesInvoiceModel.list_invoices(keyword)
         self._rows = rows
 
         sorting = self.table.isSortingEnabled()
@@ -186,13 +183,13 @@ class GoodsReceiptPage(QWidget):
 
         for row_index, row in enumerate(rows):
             values = [
-                row.get("receipt_number", ""),
-                row.get("purchase_order", ""),
-                row.get("supplier", ""),
-                row.get("receipt_date", ""),
-                row.get("warehouse", ""),
+                row.get("invoice_number", ""),
+                row.get("invoice_date", ""),
+                row.get("customer_name", ""),
+                row.get("customer_code", ""),
+                row.get("currency", "USD"),
+                f"{float(row.get('grand_total') or 0):.2f}",
                 self._status_text(row.get("status", "")),
-                f"{float(row.get('total_quantity') or 0):.3f}".rstrip("0").rstrip("."),
                 row.get("created_by", "SYSTEM"),
             ]
             for col, value in enumerate(values):
@@ -202,40 +199,47 @@ class GoodsReceiptPage(QWidget):
         set_record_count(self.record_count_label, len(rows))
         self._update_stats(rows)
 
-    def _update_stats(self, rows: List[Dict[str, Any]]):
+    def _update_stats(self, rows):
         total = len(rows)
         posted = sum(1 for row in rows if str(row.get("status") or "").lower() == "posted")
         cancelled = sum(1 for row in rows if str(row.get("status") or "").lower() == "cancelled")
-        quantity = sum(float(row.get("total_quantity") or 0) for row in rows)
+        amount = sum(float(row.get("grand_total") or 0) for row in rows)
 
         self.stats_cards[0][1].setText(str(total))
         self.stats_cards[1][1].setText(str(posted))
         self.stats_cards[2][1].setText(str(cancelled))
-        self.stats_cards[3][1].setText(f"{quantity:,.3f}")
+        self.stats_cards[3][1].setText(f"{amount:,.2f} USD")
 
-    def _new_receipt(self):
-        dialog = NewGoodsReceiptDialog(parent=self)
-        if dialog.exec():
-            self.load_receipts(self.search_input.text())
+    def _new_invoice(self):
+        try:
+            dialog = NewExportSalesInvoiceDialog(parent=self)
+            if dialog.exec():
+                self.load_invoices(self.search_input.text())
+        except Exception as exc:
+            traceback.print_exc()
+            QMessageBox.critical(self, "Hata", f"Yeni Yurtdışı Satış Faturası penceresi açılamadı:\n{exc}")
 
     def _edit_selected(self):
-        receipt_no = self._selected_receipt_no()
-        if not receipt_no:
+        invoice_no = self._selected_invoice_no()
+        if not invoice_no:
             return
-
-        dialog = NewGoodsReceiptDialog(receipt_number=receipt_no, parent=self)
-        if dialog.exec():
-            self.load_receipts(self.search_input.text())
+        try:
+            dialog = NewExportSalesInvoiceDialog(invoice_number=invoice_no, parent=self)
+            if dialog.exec():
+                self.load_invoices(self.search_input.text())
+        except Exception as exc:
+            traceback.print_exc()
+            QMessageBox.critical(self, "Hata", f"Yurtdışı Satış Faturası düzenleme penceresi açılamadı:\n{exc}")
 
     def _cancel_selected(self):
-        receipt_no = self._selected_receipt_no()
-        if not receipt_no:
+        invoice_no = self._selected_invoice_no()
+        if not invoice_no:
             return
 
         answer = QMessageBox.question(
             self,
-            "Mal Kabulü İptal Et",
-            "Bu işlem fişi iptal durumuna alır. Devam edilsin mi?",
+            "Yurtdışı Satış Faturasını İptal Et",
+            "Bu işlem faturayı iptal durumuna alır. Devam edilsin mi?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -243,10 +247,10 @@ class GoodsReceiptPage(QWidget):
             return
 
         try:
-            GoodsReceiptModel.cancel_receipt(receipt_no)
-            self.load_receipts(self.search_input.text())
+            ExportSalesInvoiceModel.cancel_invoice(invoice_no)
+            self.load_invoices(self.search_input.text())
         except Exception as exc:
-            QMessageBox.critical(self, "Hata", f"İptal işlemi başarısız oldu:\n{exc}")
+            QMessageBox.critical(self, "Hata", f"Yurtdışı satış faturası iptal işlemi başarısız oldu:\n{exc}")
 
     def _show_column_menu(self):
         menu = QMenu(self)
@@ -268,11 +272,25 @@ class GoodsReceiptPage(QWidget):
         edit_action.triggered.connect(self._edit_selected)
         cancel_action = QAction("İptal", self)
         cancel_action.triggered.connect(self._cancel_selected)
+        packing_action = QAction("Çeki Listesi Oluştur", self)
+        packing_action.triggered.connect(self._create_packing_list_from_selected)
         menu.addAction(edit_action)
         menu.addAction(cancel_action)
+        menu.addSeparator()
+        menu.addAction(packing_action)
         menu.exec_(self.table.viewport().mapToGlobal(pos))
 
-    def _selected_receipt_no(self):
+    def _create_packing_list_from_selected(self):
+        invoice_no = self._selected_invoice_no()
+        if not invoice_no:
+            QMessageBox.warning(self, "Uyarı", "Önce bir fatura seçin.")
+            return
+
+        dialog = NewPackingListDialog(source_type="SalesInvoice", source_number=invoice_no, parent=self)
+        if dialog.exec():
+            QMessageBox.information(self, "Başarılı", "Çeki listesi oluşturuldu.")
+
+    def _selected_invoice_no(self):
         row = self.table.currentRow()
         if row < 0:
             return None
@@ -284,7 +302,7 @@ class GoodsReceiptPage(QWidget):
 
     def _set_column_visibility(self, index: int, visible: bool):
         self.table.setColumnHidden(index, not visible)
-        self.settings.setValue(f"goods_receipt_columns/{index}", visible)
+        self.settings.setValue(f"export_sales_invoice_columns/{index}", visible)
 
     def _document_payload(self):
         headers = self.column_labels
@@ -298,26 +316,29 @@ class GoodsReceiptPage(QWidget):
 
         selected_row = self.table.currentRow()
         customer_name = ""
-        document_no = self._selected_receipt_no() or ""
+        customer_code = ""
+        document_no = self._selected_invoice_no() or ""
         if selected_row >= 0:
-            s_item = self.table.item(selected_row, 2)
-            customer_name = "" if s_item is None else s_item.text()
+            c_item = self.table.item(selected_row, 2)
+            cc_item = self.table.item(selected_row, 3)
+            customer_name = "" if c_item is None else c_item.text()
+            customer_code = "" if cc_item is None else cc_item.text()
 
         return {
-            "title": "Goods Receipt",
-            "filename_base": "goods_receipt",
+            "title": "Export Sales Invoice",
+            "filename_base": "export_sales_invoice",
             "headers": headers,
             "rows": rows,
             "document_number": document_no,
             "currency": "USD",
             "customer_name": customer_name,
-            "customer_code": "",
-            "totals": {"Total Quantity": self.stats_cards[3][1].text()},
+            "customer_code": customer_code,
+            "totals": {"Grand Total": self.stats_cards[3][1].text()},
         }
 
     def _restore_column_visibility(self):
         for index, _ in enumerate(self.column_labels):
-            visible = self.settings.value(f"goods_receipt_columns/{index}", True)
+            visible = self.settings.value(f"export_sales_invoice_columns/{index}", True)
             self.table.setColumnHidden(index, not visible)
 
     def _export_to_excel(self):
@@ -334,8 +355,8 @@ class GoodsReceiptPage(QWidget):
             self,
             headers,
             rows,
-            "Mal_Kabul_Listesi.xlsx",
-            sheet_title="Mal Kabul Listesi",
+            "Yurtdisi_Satis_Fatura_Listesi.xlsx",
+            sheet_title="Yurtdışı Satış Faturaları",
             success_message="Excel dosyası başarıyla export edildi.",
         )
 
@@ -353,8 +374,8 @@ class GoodsReceiptPage(QWidget):
             self,
             headers,
             rows,
-            "Mal_Kabul_Listesi.pdf",
-            "Mal Kabul Listesi",
+            "Yurtdisi_Satis_Fatura_Listesi.pdf",
+            "Yurtdışı Satış Fatura Listesi",
             logo_path=str(self._logo_path) if self._logo_path.exists() else None,
         )
 
@@ -368,22 +389,13 @@ class GoodsReceiptPage(QWidget):
                 values.append("" if item is None else item.text())
             rows.append(values)
 
-        PrintService.print_report(self, headers, rows, "Mal Kabul Listesi")
+        PrintService.print_report(self, headers, rows, "Yurtdışı Satış Fatura Listesi")
 
     def _resolve_logo_path(self) -> Path:
         project_root = Path(__file__).resolve().parent.parent
         official = project_root / "assets" / "logos" / "mewa_logo.png"
         fallback = project_root / "assets" / "logo.png"
         return official if official.exists() else fallback
-
-    def _update_logo_watermark(self):
-        width = max(120, min(self.width() // 7, 220))
-        height = max(38, min(self.height() // 12, 86))
-        self.logo_watermark.setPixmap(get_scaled_company_logo(width, height))
-
-    def resizeEvent(self, event):  # noqa: N802
-        super().resizeEvent(event)
-        self._update_logo_watermark()
 
     @staticmethod
     def _status_text(status: str) -> str:

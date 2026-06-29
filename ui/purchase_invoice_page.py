@@ -1,4 +1,5 @@
 from pathlib import Path
+import traceback
 
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QAction
@@ -18,10 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 from models.purchase_invoice_model import PurchaseInvoiceModel
-from services.excel_service import ExcelService
-from services.pdf_service import PDFService
-from services.print_service import PrintService
-from shared.widgets.table_column_state import add_layout_lock_toggle, apply_table_column_standard
+from shared.widgets.document_toolbar import DocumentToolbar
+from shared.widgets.table_column_state import apply_table_column_standard
 from shared.widgets.table_visual import apply_list_table_visuals, create_record_count_label, set_record_count
 from ui.new_purchase_invoice_dialog import NewPurchaseInvoiceDialog
 
@@ -73,27 +72,7 @@ class PurchaseInvoicePage(QWidget):
 
         self.toolbar.addSeparator()
 
-        self.action_excel = QAction("📄 Excel", self)
-        self.action_excel.triggered.connect(self._export_to_excel)
-        self.toolbar.addAction(self.action_excel)
-
-        self.action_pdf = QAction("🖨 PDF", self)
-        self.action_pdf.triggered.connect(self._export_to_pdf)
-        self.toolbar.addAction(self.action_pdf)
-
-        self.action_print = QAction("🖨 Yazdır", self)
-        self.action_print.triggered.connect(self._print_table)
-        self.toolbar.addAction(self.action_print)
-
-        self.action_whatsapp = QAction("🟢 WhatsApp", self)
-        self.action_whatsapp.setEnabled(False)
-        self.toolbar.addAction(self.action_whatsapp)
-
         self.toolbar.addSeparator()
-
-        self.action_columns = QAction("⚙️ Kolonlar", self)
-        self.action_columns.triggered.connect(self._show_column_menu)
-        self.toolbar.addAction(self.action_columns)
 
         self.stats_layout = QGridLayout()
         self.stats_layout.setSpacing(12)
@@ -164,13 +143,13 @@ class PurchaseInvoicePage(QWidget):
             "purchase_invoice_table",
             keep_last_column_stretch=False,
         )
-        self.action_layout_lock = add_layout_lock_toggle(
-            self.toolbar,
-            self.table,
-            self.settings,
-            "purchase_invoice_table",
-            self,
-            keep_last_column_stretch=False,
+        self.document_toolbar = DocumentToolbar(
+            parent=self,
+            toolbar=self.toolbar,
+            table=self.table,
+            settings=self.settings,
+            layout_key="purchase_invoice_table",
+            payload_provider=self._document_payload,
         )
 
         layout.addWidget(self.table)
@@ -228,18 +207,25 @@ class PurchaseInvoicePage(QWidget):
         self.stats_cards[3][1].setText(f"{amount:,.2f} USD")
 
     def _new_invoice(self):
-        dialog = NewPurchaseInvoiceDialog(parent=self)
-        if dialog.exec():
-            self.load_invoices(self.search_input.text())
+        try:
+            dialog = NewPurchaseInvoiceDialog(parent=self)
+            if dialog.exec():
+                self.load_invoices(self.search_input.text())
+        except Exception as exc:
+            traceback.print_exc()
+            QMessageBox.critical(self, "Hata", f"Yeni Alış Faturası penceresi açılamadı:\n{exc}")
 
     def _edit_selected(self):
         invoice_no = self._selected_invoice_no()
         if not invoice_no:
             return
-
-        dialog = NewPurchaseInvoiceDialog(invoice_number=invoice_no, parent=self)
-        if dialog.exec():
-            self.load_invoices(self.search_input.text())
+        try:
+            dialog = NewPurchaseInvoiceDialog(invoice_number=invoice_no, parent=self)
+            if dialog.exec():
+                self.load_invoices(self.search_input.text())
+        except Exception as exc:
+            traceback.print_exc()
+            QMessageBox.critical(self, "Hata", f"Alış Faturası düzenleme penceresi açılamadı:\n{exc}")
 
     def _cancel_selected(self):
         invoice_no = self._selected_invoice_no()
@@ -299,6 +285,28 @@ class PurchaseInvoicePage(QWidget):
     def _set_column_visibility(self, index: int, visible: bool):
         self.table.setColumnHidden(index, not visible)
         self.settings.setValue(f"purchase_invoice_columns/{index}", visible)
+
+    def _document_payload(self):
+        headers = self.column_labels
+        rows = []
+        for row in range(self.table.rowCount()):
+            values = []
+            for col in range(self.table.columnCount()):
+                item = self.table.item(row, col)
+                values.append("" if item is None else item.text())
+            rows.append(values)
+        selected = self._selected_invoice_no() or ""
+        return {
+            "title": "Purchase Invoice",
+            "filename_base": "purchase_invoice",
+            "headers": headers,
+            "rows": rows,
+            "document_number": selected,
+            "currency": "USD",
+            "customer_name": "",
+            "customer_code": "",
+            "totals": {"Grand Total": self.stats_cards[3][1].text()},
+        }
 
     def _restore_column_visibility(self):
         for index, _ in enumerate(self.column_labels):

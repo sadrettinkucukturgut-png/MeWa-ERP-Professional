@@ -20,6 +20,12 @@ def _ensure_stock_currency_columns(cursor):
     if "image_path" not in columns:
         cursor.execute("ALTER TABLE stoklar ADD COLUMN image_path TEXT")
 
+    if "hs_code" not in columns:
+        cursor.execute("ALTER TABLE stoklar ADD COLUMN hs_code TEXT")
+
+    if "weight" not in columns:
+        cursor.execute("ALTER TABLE stoklar ADD COLUMN weight REAL DEFAULT 0")
+
 
 def _ensure_stock_reference_tables(cursor):
     cursor.execute("""
@@ -235,6 +241,276 @@ def _ensure_purchase_invoice_tables(cursor):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_supplier_movements_ref_no ON supplier_account_movements(reference_no)")
 
 
+def _ensure_sales_invoice_tables(cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sales_invoices(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_number TEXT UNIQUE NOT NULL,
+            customer_id INTEGER NOT NULL,
+            invoice_date TEXT NOT NULL,
+            due_date TEXT,
+            currency TEXT DEFAULT 'USD',
+            exchange_rate REAL DEFAULT 1,
+            subtotal REAL NOT NULL DEFAULT 0,
+            discount_total REAL NOT NULL DEFAULT 0,
+            vat_total REAL NOT NULL DEFAULT 0,
+            grand_total REAL NOT NULL DEFAULT 0,
+            status TEXT DEFAULT 'Posted',
+            notes TEXT,
+            created_by TEXT DEFAULT 'SYSTEM',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES cariler(id) ON UPDATE CASCADE ON DELETE RESTRICT
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sales_invoice_items(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_id INTEGER NOT NULL,
+            stock_id INTEGER NOT NULL,
+            quantity REAL NOT NULL DEFAULT 0,
+            unit TEXT,
+            unit_price REAL NOT NULL DEFAULT 0,
+            discount_percent REAL NOT NULL DEFAULT 0,
+            vat_percent REAL NOT NULL DEFAULT 0,
+            line_total REAL NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (invoice_id) REFERENCES sales_invoices(id) ON UPDATE CASCADE ON DELETE CASCADE,
+            FOREIGN KEY (stock_id) REFERENCES stoklar(id) ON UPDATE CASCADE ON DELETE RESTRICT
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS customer_account_movements(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            movement_date TEXT NOT NULL,
+            movement_type TEXT NOT NULL,
+            reference_type TEXT,
+            reference_no TEXT,
+            amount REAL NOT NULL DEFAULT 0,
+            currency TEXT DEFAULT 'USD',
+            exchange_rate REAL DEFAULT 1,
+            description TEXT,
+            status TEXT DEFAULT 'Posted',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES cariler(id) ON UPDATE CASCADE ON DELETE RESTRICT
+        )
+        """
+    )
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_invoices_customer_id ON sales_invoices(customer_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_invoices_invoice_date ON sales_invoices(invoice_date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_invoices_status ON sales_invoices(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_invoice_items_invoice_id ON sales_invoice_items(invoice_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_invoice_items_stock_id ON sales_invoice_items(stock_id)")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_customer_movements_customer_id ON customer_account_movements(customer_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_customer_movements_ref_no ON customer_account_movements(reference_no)"
+    )
+
+    cursor.execute("PRAGMA table_info(sales_invoices)")
+    sales_columns = {str(row[1]).lower() for row in cursor.fetchall()}
+    if "source_proforma_number" not in sales_columns:
+        cursor.execute("ALTER TABLE sales_invoices ADD COLUMN source_proforma_number TEXT")
+    if "payment_terms" not in sales_columns:
+        cursor.execute("ALTER TABLE sales_invoices ADD COLUMN payment_terms TEXT")
+    if "delivery_terms" not in sales_columns:
+        cursor.execute("ALTER TABLE sales_invoices ADD COLUMN delivery_terms TEXT")
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_invoices_source_pf ON sales_invoices(source_proforma_number)")
+
+
+def _ensure_proforma_tables(cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS proforma_headers(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            proforma_number TEXT UNIQUE NOT NULL,
+            customer_id INTEGER NOT NULL,
+            issue_date TEXT NOT NULL,
+            expiry_date TEXT,
+            currency TEXT DEFAULT 'USD',
+            exchange_rate REAL DEFAULT 1,
+            subtotal REAL NOT NULL DEFAULT 0,
+            discount_total REAL NOT NULL DEFAULT 0,
+            vat_total REAL NOT NULL DEFAULT 0,
+            grand_total REAL NOT NULL DEFAULT 0,
+            status TEXT DEFAULT 'Draft',
+            notes TEXT,
+            created_by TEXT DEFAULT 'SYSTEM',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES cariler(id) ON UPDATE CASCADE ON DELETE RESTRICT
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS proforma_lines(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            proforma_id INTEGER NOT NULL,
+            stock_id INTEGER NOT NULL,
+            quantity REAL NOT NULL DEFAULT 0,
+            unit TEXT,
+            unit_price REAL NOT NULL DEFAULT 0,
+            discount_percent REAL NOT NULL DEFAULT 0,
+            vat_percent REAL NOT NULL DEFAULT 0,
+            line_total REAL NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (proforma_id) REFERENCES proforma_headers(id) ON UPDATE CASCADE ON DELETE CASCADE,
+            FOREIGN KEY (stock_id) REFERENCES stoklar(id) ON UPDATE CASCADE ON DELETE RESTRICT
+        )
+        """
+    )
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_proforma_headers_customer_id ON proforma_headers(customer_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_proforma_headers_issue_date ON proforma_headers(issue_date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_proforma_headers_status ON proforma_headers(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_proforma_lines_proforma_id ON proforma_lines(proforma_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_proforma_lines_stock_id ON proforma_lines(stock_id)")
+
+    cursor.execute("PRAGMA table_info(proforma_headers)")
+    proforma_columns = {str(row[1]).lower() for row in cursor.fetchall()}
+    if "payment_terms" not in proforma_columns:
+        cursor.execute("ALTER TABLE proforma_headers ADD COLUMN payment_terms TEXT")
+    if "delivery_terms" not in proforma_columns:
+        cursor.execute("ALTER TABLE proforma_headers ADD COLUMN delivery_terms TEXT")
+    if "converted_invoice_number" not in proforma_columns:
+        cursor.execute("ALTER TABLE proforma_headers ADD COLUMN converted_invoice_number TEXT")
+    if "converted_at" not in proforma_columns:
+        cursor.execute("ALTER TABLE proforma_headers ADD COLUMN converted_at DATETIME")
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS proforma_history(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            proforma_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            event_note TEXT,
+            created_by TEXT DEFAULT 'SYSTEM',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (proforma_id) REFERENCES proforma_headers(id) ON UPDATE CASCADE ON DELETE CASCADE
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_proforma_history_proforma_id ON proforma_history(proforma_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_proforma_headers_converted_invoice ON proforma_headers(converted_invoice_number)")
+
+
+def _ensure_packing_list_tables(cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS packing_lists(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            packing_list_number TEXT UNIQUE NOT NULL,
+            packing_date TEXT NOT NULL,
+            customer_id INTEGER NOT NULL,
+            consignee TEXT,
+            notify_party TEXT,
+            invoice_number TEXT,
+            proforma_number TEXT,
+            container_no TEXT,
+            seal_no TEXT,
+            country TEXT,
+            port_of_loading TEXT,
+            port_of_discharge TEXT,
+            delivery_terms TEXT,
+            payment_terms TEXT,
+            estimated_delivery TEXT,
+            currency TEXT DEFAULT 'USD',
+            notes TEXT,
+            source_type TEXT NOT NULL,
+            source_number TEXT NOT NULL,
+            total_pallets INTEGER DEFAULT 0,
+            total_products INTEGER DEFAULT 0,
+            total_quantity REAL DEFAULT 0,
+            total_net_weight REAL DEFAULT 0,
+            total_gross_weight REAL DEFAULT 0,
+            total_volume REAL DEFAULT 0,
+            status TEXT DEFAULT 'Draft',
+            created_by TEXT DEFAULT 'SYSTEM',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES cariler(id) ON UPDATE CASCADE ON DELETE RESTRICT
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS packing_list_pallets(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            packing_list_id INTEGER NOT NULL,
+            pallet_no TEXT NOT NULL,
+            pallet_weight REAL DEFAULT 0,
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (packing_list_id) REFERENCES packing_lists(id) ON UPDATE CASCADE ON DELETE CASCADE,
+            UNIQUE(packing_list_id, pallet_no)
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS packing_list_items(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            packing_list_id INTEGER NOT NULL,
+            pallet_id INTEGER NOT NULL,
+            stock_id INTEGER NOT NULL,
+            stock_code TEXT,
+            description TEXT,
+            hs_code TEXT,
+            quantity REAL DEFAULT 0,
+            unit TEXT,
+            product_weight REAL DEFAULT 0,
+            net_weight REAL DEFAULT 0,
+            gross_weight REAL DEFAULT 0,
+            remarks TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (packing_list_id) REFERENCES packing_lists(id) ON UPDATE CASCADE ON DELETE CASCADE,
+            FOREIGN KEY (pallet_id) REFERENCES packing_list_pallets(id) ON UPDATE CASCADE ON DELETE CASCADE,
+            FOREIGN KEY (stock_id) REFERENCES stoklar(id) ON UPDATE CASCADE ON DELETE RESTRICT
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS packing_list_history(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            packing_list_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            event_note TEXT,
+            created_by TEXT DEFAULT 'SYSTEM',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (packing_list_id) REFERENCES packing_lists(id) ON UPDATE CASCADE ON DELETE CASCADE
+        )
+        """
+    )
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_packing_lists_number ON packing_lists(packing_list_number)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_packing_lists_date ON packing_lists(packing_date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_packing_lists_source ON packing_lists(source_type, source_number)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_packing_list_pallets_list_id ON packing_list_pallets(packing_list_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_packing_list_items_list_id ON packing_list_items(packing_list_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_packing_list_items_pallet_id ON packing_list_items(pallet_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_packing_list_items_stock_id ON packing_list_items(stock_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_packing_list_history_list_id ON packing_list_history(packing_list_id)")
+
+
 def create_database():
 
     conn = sqlite3.connect("database/mewa.db")
@@ -284,9 +560,9 @@ def create_database():
         sale_price REAL DEFAULT 0,
         sale_currency TEXT DEFAULT 'USD',
         vat_rate REAL DEFAULT 0,
-        critical_stock REAL DEFAULT 0,
+        hs_code TEXT,
+        weight REAL DEFAULT 0,
         current_stock REAL DEFAULT 0,
-        warehouse TEXT,
         shelf TEXT,
         origin TEXT,
         description TEXT,
@@ -332,6 +608,9 @@ def create_database():
     _ensure_purchase_tables(cursor)
     _ensure_goods_receipt_tables(cursor)
     _ensure_purchase_invoice_tables(cursor)
+    _ensure_sales_invoice_tables(cursor)
+    _ensure_proforma_tables(cursor)
+    _ensure_packing_list_tables(cursor)
 
     conn.commit()
     conn.close()

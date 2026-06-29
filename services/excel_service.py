@@ -19,6 +19,19 @@ class ExcelService:
             if not save_path:
                 return False
 
+            if not ExcelService.export_excel_to_path(save_path, headers, rows, sheet_title):
+                QMessageBox.critical(parent, "Hata", "Excel dosyası oluşturulurken bir hata oluştu.")
+                return False
+
+            QMessageBox.information(parent, "Başarılı", success_message)
+            return True
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            QMessageBox.critical(parent, "Hata", f"Excel dosyası oluşturulurken bir hata oluştu:\n{exc}")
+            return False
+
+    @staticmethod
+    def export_excel_to_path(save_path: str, headers: Sequence[str], rows: Sequence[Sequence[object]], sheet_title: str) -> bool:
+        try:
             workbook = Workbook()
             sheet = workbook.active
             sheet.title = sheet_title[:31]
@@ -42,8 +55,6 @@ class ExcelService:
 
             sheet.freeze_panes = "A2"
             workbook.save(save_path)
-            QMessageBox.information(parent, "Başarılı", success_message)
             return True
-        except Exception as exc:  # pragma: no cover - defensive fallback
-            QMessageBox.critical(parent, "Hata", f"Excel dosyası oluşturulurken bir hata oluştu:\n{exc}")
+        except Exception:
             return False

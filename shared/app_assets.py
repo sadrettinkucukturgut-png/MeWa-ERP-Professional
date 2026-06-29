@@ -7,15 +7,52 @@ from PySide6.QtGui import QIcon, QPixmap
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 COMPANY_LOGO_PATH = PROJECT_ROOT / "assets" / "logo.png"
 LEGACY_COMPANY_LOGO_PATH = PROJECT_ROOT / "assets" / "images" / "logo.png"
+BRANDING_DIR = PROJECT_ROOT / "assets" / "branding"
+TEMPLATES_DIR = PROJECT_ROOT / "assets" / "templates"
+
+
+_BRANDING_FILES = {
+    "company_logo": "company_logo.png",
+    "company_logo_dark": "company_logo_dark.png",
+    "company_signature": "company_signature.png",
+    "company_stamp": "company_stamp.png",
+    "watermark": "watermark.png",
+}
+
+_TEMPLATE_FILES = {
+    "PROFORMA": "proforma_background.png",
+    "EXPORT_SALES_INVOICE": "export_invoice_background.png",
+    "COMMERCIAL_INVOICE": "commercial_invoice_background.png",
+    "PACKING_LIST": "packing_list_background.png",
+    "PURCHASE_INVOICE": "purchase_invoice_background.png",
+}
 
 
 def get_company_logo_path() -> Path:
     """Return permanent corporate logo path with safe legacy fallback."""
+    preferred = get_branding_asset_path("company_logo")
+    if preferred.exists():
+        return preferred
     if COMPANY_LOGO_PATH.exists():
         return COMPANY_LOGO_PATH
     if LEGACY_COMPANY_LOGO_PATH.exists():
         return LEGACY_COMPANY_LOGO_PATH
     return COMPANY_LOGO_PATH
+
+
+def get_branding_asset_path(asset_key: str) -> Path:
+    filename = _BRANDING_FILES.get(str(asset_key or "").strip().lower(), "")
+    if filename:
+        return BRANDING_DIR / filename
+    return BRANDING_DIR / str(asset_key or "")
+
+
+def get_document_template_background_path(document_kind: str) -> Path:
+    key = str(document_kind or "").strip().upper()
+    filename = _TEMPLATE_FILES.get(key, "")
+    if filename:
+        return TEMPLATES_DIR / filename
+    return TEMPLATES_DIR / ""
 
 
 def load_company_logo_pixmap() -> QPixmap:

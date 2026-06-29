@@ -18,10 +18,8 @@ from PySide6.QtWidgets import (
 )
 
 from models.purchase_order_model import PurchaseOrderModel
-from services.excel_service import ExcelService
-from services.pdf_service import PDFService
-from services.print_service import PrintService
-from shared.widgets.table_column_state import add_layout_lock_toggle, apply_table_column_standard
+from shared.widgets.document_toolbar import DocumentToolbar
+from shared.widgets.table_column_state import apply_table_column_standard
 from shared.widgets.table_visual import apply_list_table_visuals, create_record_count_label, set_record_count
 from ui.new_purchase_order_dialog import NewPurchaseOrderDialog
 
@@ -72,28 +70,6 @@ class PurchaseOrderPage(QWidget):
         self.toolbar.addAction(self.action_delete_purchase)
 
         self.toolbar.addSeparator()
-
-        self.action_excel = QAction("📄 Excel", self)
-        self.action_excel.triggered.connect(self._export_to_excel)
-        self.toolbar.addAction(self.action_excel)
-
-        self.action_pdf = QAction("🖨 PDF", self)
-        self.action_pdf.triggered.connect(self._export_to_pdf)
-        self.toolbar.addAction(self.action_pdf)
-
-        self.action_print = QAction("🖨 Yazdır", self)
-        self.action_print.triggered.connect(self._print_table)
-        self.toolbar.addAction(self.action_print)
-
-        self.action_whatsapp = QAction("🟢 WhatsApp", self)
-        self.action_whatsapp.setEnabled(False)
-        self.toolbar.addAction(self.action_whatsapp)
-
-        self.toolbar.addSeparator()
-
-        self.action_columns = QAction("⚙️ Kolonlar", self)
-        self.action_columns.triggered.connect(self._show_column_menu)
-        self.toolbar.addAction(self.action_columns)
 
         self.toolbar.addSeparator()
 
@@ -166,13 +142,13 @@ class PurchaseOrderPage(QWidget):
             "purchase_order_table",
             keep_last_column_stretch=False,
         )
-        self.action_layout_lock = add_layout_lock_toggle(
-            self.toolbar,
-            self.purchase_table,
-            self.settings,
-            "purchase_order_table",
-            self,
-            keep_last_column_stretch=False,
+        self.document_toolbar = DocumentToolbar(
+            parent=self,
+            toolbar=self.toolbar,
+            table=self.purchase_table,
+            settings=self.settings,
+            layout_key="purchase_order_table",
+            payload_provider=self._document_payload,
         )
         layout.addWidget(self.purchase_table)
 
@@ -313,6 +289,36 @@ class PurchaseOrderPage(QWidget):
     def _set_column_visibility(self, column_index, visible):
         self.purchase_table.setColumnHidden(column_index, not visible)
         self.settings.setValue(f"purchase_order_columns/{column_index}", visible)
+
+    def _document_payload(self):
+        headers = self.column_labels
+        rows = []
+        for row in range(self.purchase_table.rowCount()):
+            values = []
+            for col in range(self.purchase_table.columnCount()):
+                item = self.purchase_table.item(row, col)
+                values.append("" if item is None else item.text())
+            rows.append(values)
+
+        selected_row = self.purchase_table.currentRow()
+        customer_name = ""
+        customer_code = ""
+        document_no = self._get_selected_order_number() or ""
+        if selected_row >= 0:
+            s_item = self.purchase_table.item(selected_row, 2)
+            customer_name = "" if s_item is None else s_item.text()
+
+        return {
+            "title": "Purchase Order",
+            "filename_base": "purchase_order",
+            "headers": headers,
+            "rows": rows,
+            "document_number": document_no,
+            "currency": "USD",
+            "customer_name": customer_name,
+            "customer_code": customer_code,
+            "totals": {"Total Amount": self.stats_cards[3][1].text()},
+        }
 
     def _restore_column_visibility(self):
         for index, _ in enumerate(self.column_labels):

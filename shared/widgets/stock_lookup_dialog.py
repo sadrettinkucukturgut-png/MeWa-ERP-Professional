@@ -16,9 +16,9 @@ def _normalize_stock_record(record: Any) -> Optional[Dict[str, Any]]:
     if len(values) < 19:
         return None
 
-    purchase_price = float(values[7] or 0)
-    sale_price = float(values[9] or 0)
-    current_stock = float(values[13] or 0)
+    purchase_price = float(values[8] or 0)
+    sale_price = float(values[10] or 0)
+    current_stock = float(values[14] or 0)
 
     return {
         "stock_id": int(values[0] or 0),
@@ -26,11 +26,13 @@ def _normalize_stock_record(record: Any) -> Optional[Dict[str, Any]]:
         "barcode": str(values[2] or "").strip(),
         "product_name": str(values[3] or "").strip(),
         "category": str(values[4] or "").strip(),
-        "brand": str(values[5] or "").strip(),
-        "unit": str(values[6] or "").strip(),
+        "hs_code": str(values[5] or "").strip(),
+        "brand": str(values[6] or "").strip(),
+        "unit": str(values[7] or "").strip(),
         "purchase_price": purchase_price,
         "sale_price": sale_price,
-        "vat_rate": float(values[11] or 0),
+        "vat_rate": float(values[12] or 0),
+        "weight": float(values[13] or 0),
         "current_stock": current_stock,
         "sales_price": sale_price,
         "purchase_price_default": purchase_price,
@@ -65,6 +67,7 @@ class StockLookupDialog(LookupDialogBase):
                     barcode,
                     product_name,
                     category,
+                    hs_code,
                     brand,
                     unit,
                     purchase_price,
@@ -72,9 +75,8 @@ class StockLookupDialog(LookupDialogBase):
                     sale_price,
                     sale_currency,
                     vat_rate,
-                    critical_stock,
+                    weight,
                     current_stock,
-                    warehouse,
                     shelf,
                     origin,
                     description,
@@ -101,6 +103,7 @@ class StockLookupDialog(LookupDialogBase):
                     record["barcode"],
                     record["product_name"],
                     record["category"],
+                    record["hs_code"],
                     record["brand"],
                     record["unit"],
                 ]

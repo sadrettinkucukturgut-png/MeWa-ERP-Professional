@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QDateEdit,
     QDialog,
     QDoubleSpinBox,
+    QFrame,
     QFormLayout,
     QGridLayout,
     QHeaderView,
@@ -29,6 +30,13 @@ from PySide6.QtWidgets import (
 from models.purchase_order_model import PurchaseOrderModel
 from models.stock_model import StockModel
 from models.supplier_model import SupplierModel
+from services.document_preview_engine import (
+    DocumentLineItem,
+    DocumentPreviewController,
+    DocumentTemplate,
+    build_template_signature,
+    resolve_party_details,
+)
 from shared.widgets.stock_lookup_dialog import StockLookupDialog
 
 
@@ -84,7 +92,7 @@ class StockSelectionDialog(QDialog):
             stock_code = str(stock[0] or "")
             barcode = str(stock[1] or "")
             product_name = str(stock[2] or "")
-            unit = str(stock[5] or "")
+            unit = str(stock[6] or "")
             if token and token not in f"{stock_code} {barcode} {product_name}".lower():
                 continue
             visible.append((stock_code, barcode, product_name, unit, stock))
@@ -108,8 +116,8 @@ class StockSelectionDialog(QDialog):
             "stock_code": str(stock[0] or ""),
             "barcode": str(stock[1] or ""),
             "product_name": str(stock[2] or ""),
-            "unit": str(stock[5] or ""),
-            "unit_price": str(stock[6] or 0),
+            "unit": str(stock[6] or ""),
+            "unit_price": str(stock[7] or 0),
         }
         self.accept()
 
@@ -132,6 +140,9 @@ class NewPurchaseOrderDialog(QDialog):
         self.saved_order_number = ""
         self._supplier_map: Dict[str, int] = {}
         self._stock_map: Dict[str, int] = {}
+        self._preview_controller: Optional[DocumentPreviewController] = None
+        self._has_persisted_document = self.is_edit_mode
+        self._last_saved_signature = ""
 
         self.setWindowTitle("Satın Alma Siparişi Düzenle" if self.is_edit_mode else "Yeni Satın Alma Siparişi")
         self.resize(1180, 860)
@@ -144,6 +155,8 @@ class NewPurchaseOrderDialog(QDialog):
         else:
             self.order_no_input.setText(PurchaseOrderModel.siparis_numarasi_uret())
             self._update_totals()
+
+        self._initialize_preview_state()
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
@@ -298,14 +311,17 @@ class NewPurchaseOrderDialog(QDialog):
         button_row = QHBoxLayout()
         button_row.addStretch()
 
-        save_btn = QPushButton("Kaydet")
-        save_btn.setDefault(True)
-        save_btn.clicked.connect(self._on_save)
-        cancel_btn = QPushButton("İptal")
-        cancel_btn.clicked.connect(self.reject)
+        self.preview_btn = QPushButton("Önizleme")
+        self.preview_btn.clicked.connect(self._on_preview)
+        self.save_btn = QPushButton("Kaydet")
+        self.save_btn.setDefault(True)
+        self.save_btn.clicked.connect(self._on_save)
+        self.cancel_btn = QPushButton("İptal")
+        self.cancel_btn.clicked.connect(self.reject)
 
-        button_row.addWidget(save_btn)
-        button_row.addWidget(cancel_btn)
+        button_row.addWidget(self.preview_btn)
+        button_row.addWidget(self.save_btn)
+        button_row.addWidget(self.cancel_btn)
         content_layout.addLayout(button_row)
 
         scroll_area.setWidget(content)
@@ -563,14 +579,17 @@ class NewPurchaseOrderDialog(QDialog):
         self.grand_total_value.setText(f"{grand_total:,.2f}")
 
     def _on_save(self):
+        self._save_document(close_on_success=True)
+
+    def _save_document(self, close_on_success: bool) -> bool:
         supplier_name = self.supplier_combo.currentText().strip()
         supplier_id = self._supplier_map.get(supplier_name)
         if not supplier_id:
             QMessageBox.warning(self, "Uyarı", "Tedarikçi seçimi zorunludur.")
-            return
+            return False
         if self.product_table.rowCount() == 0:
             QMessageBox.warning(self, "Uyarı", "En az bir ürün eklenmelidir.")
-            return
+            return False
 
         items: List[Dict[str, float]] = []
         for row in range(self.product_table.rowCount()):
@@ -579,7 +598,7 @@ class NewPurchaseOrderDialog(QDialog):
             stock_id = self._stock_map.get(stock_code)
             if not stock_id:
                 QMessageBox.warning(self, "Uyarı", f"{row + 1}. satırda geçersiz stok var.")
-                return
+                return False
 
             items.append(
                 {
@@ -608,9 +627,109 @@ class NewPurchaseOrderDialog(QDialog):
                 existing_order_number=self.order_number if self.is_edit_mode else None,
             )
             self.saved_order_number = self.order_no_input.text().strip()
-            self.accept()
+            self.order_number = self.saved_order_number
+            self.is_edit_mode = True
+            self._has_persisted_document = True
+            self._last_saved_signature = build_template_signature(self._build_preview_template())
+            if close_on_success:
+                self.accept()
+            return True
         except Exception as exc:
             QMessageBox.critical(self, "Hata", f"Satın alma siparişi kaydedilemedi:\n{exc}")
+            return False
+
+    def _initialize_preview_state(self):
+        if self._has_persisted_document:
+            self._last_saved_signature = build_template_signature(self._build_preview_template())
+
+    def _has_unsaved_changes(self) -> bool:
+        if not self._has_persisted_document:
+            return False
+        current = build_template_signature(self._build_preview_template())
+        return current != self._last_saved_signature
+
+    def _get_preview_controller(self) -> DocumentPreviewController:
+        if self._preview_controller is None:
+            self._preview_controller = DocumentPreviewController(
+                parent=self,
+                has_saved_document=lambda: self._has_persisted_document,
+                has_unsaved_changes=self._has_unsaved_changes,
+                save_callback=self._save_document,
+                template_provider=self._build_preview_template,
+            )
+        return self._preview_controller
+
+    def _on_preview(self):
+        self._get_preview_controller().open_preview()
+
+    def _build_preview_template(self) -> DocumentTemplate:
+        supplier_name = self.supplier_combo.currentText().strip()
+        party = resolve_party_details(party_code="", party_name=supplier_name)
+
+        items: list[DocumentLineItem] = []
+        subtotal = 0.0
+        discount_total = 0.0
+        vat_total = 0.0
+
+        for row in range(self.product_table.rowCount()):
+            stock_code = self.product_table.item(row, self.COL_STOCK_CODE).text().strip() if self.product_table.item(row, self.COL_STOCK_CODE) else ""
+            if not stock_code:
+                continue
+
+            qty = self._cell_float(row, self.COL_QUANTITY, 0.0)
+            unit_price = self._cell_float(row, self.COL_UNIT_PRICE, 0.0)
+            discount_percent = self._cell_float(row, self.COL_DISCOUNT, 0.0)
+            vat_percent = self._cell_float(row, self.COL_VAT, 0.0)
+
+            base = qty * unit_price
+            disc = base * (discount_percent / 100.0)
+            net = base - disc
+            vat_amount = net * (vat_percent / 100.0)
+            line_total = net + vat_amount
+
+            subtotal += base
+            discount_total += disc
+            vat_total += vat_amount
+
+            unit = self.product_table.item(row, self.COL_UNIT).text().strip() if self.product_table.item(row, self.COL_UNIT) else ""
+            description = self.product_table.item(row, self.COL_PRODUCT_NAME).text().strip() if self.product_table.item(row, self.COL_PRODUCT_NAME) else ""
+
+            items.append(
+                DocumentLineItem(
+                    line_no=len(items) + 1,
+                    product_code=stock_code,
+                    description=description,
+                    quantity=f"{qty:.3f}".rstrip("0").rstrip("."),
+                    unit=unit,
+                    unit_price=f"{unit_price:.2f}",
+                    discount=f"{discount_percent:.2f}%",
+                    vat=f"{vat_percent:.2f}%",
+                    total=f"{line_total:.2f}",
+                )
+            )
+
+        grand_total = subtotal - discount_total + vat_total
+        return DocumentTemplate(
+            document_title="PURCHASE ORDER",
+            filename_base=(self.order_no_input.text().strip() or "purchase_order").replace("/", "-"),
+            invoice_number=self.order_no_input.text().strip(),
+            invoice_date=self.order_date_input.date().toString("yyyy-MM-dd"),
+            currency=self.currency_combo.currentText().strip() or "USD",
+            exchange_rate=str(self.exchange_rate_input.value()),
+            customer_name=party.get("name") or supplier_name,
+            customer_company_name=party.get("name") or supplier_name,
+            customer_address=party.get("address") or "",
+            customer_country=party.get("country") or "",
+            customer_tax_number=party.get("tax_number") or "",
+            customer_phone=party.get("phone") or "",
+            customer_email=party.get("email") or "",
+            customer_whatsapp=party.get("phone") or "",
+            subtotal=f"{subtotal:.2f}",
+            discount_total=f"{discount_total:.2f}",
+            vat_total=f"{vat_total:.2f}",
+            grand_total=f"{grand_total:.2f}",
+            items=items,
+        )
 
     def get_saved_order_number(self) -> Optional[str]:
         if not self.saved_order_number:

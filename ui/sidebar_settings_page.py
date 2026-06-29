@@ -13,8 +13,11 @@ from PySide6.QtWidgets import (
 
 class SidebarSettingsPage(QWidget):
     showHiddenRequested = Signal()
+    restoreHiddenRequested = Signal()
     moduleVisibilityChanged = Signal(str, bool)
     resetRequested = Signal()
+    exportRequested = Signal()
+    importRequested = Signal()
 
     def __init__(self, hidden_modules: list[tuple[str, str]]):
         super().__init__()
@@ -36,8 +39,14 @@ class SidebarSettingsPage(QWidget):
 
         toolbar = QHBoxLayout()
         self.btn_show_hidden = QPushButton("Show Hidden Modules")
+        self.btn_restore_hidden = QPushButton("Restore Hidden Modules")
+        self.btn_import_layout = QPushButton("Import Sidebar Layout")
+        self.btn_export_layout = QPushButton("Export Sidebar Layout")
         self.btn_reset_layout = QPushButton("Reset Sidebar Layout")
         toolbar.addWidget(self.btn_show_hidden)
+        toolbar.addWidget(self.btn_restore_hidden)
+        toolbar.addWidget(self.btn_import_layout)
+        toolbar.addWidget(self.btn_export_layout)
         toolbar.addWidget(self.btn_reset_layout)
         toolbar.addStretch(1)
         root.addLayout(toolbar)
@@ -47,6 +56,9 @@ class SidebarSettingsPage(QWidget):
         root.addWidget(self.hidden_list, 1)
 
         self.btn_show_hidden.clicked.connect(self.showHiddenRequested.emit)
+        self.btn_restore_hidden.clicked.connect(self.restoreHiddenRequested.emit)
+        self.btn_import_layout.clicked.connect(self.importRequested.emit)
+        self.btn_export_layout.clicked.connect(self.exportRequested.emit)
         self.btn_reset_layout.clicked.connect(self._confirm_reset)
 
         self.set_hidden_modules(hidden_modules)
@@ -78,7 +90,7 @@ class SidebarSettingsPage(QWidget):
         answer = QMessageBox.question(
             self,
             "Reset Sidebar Layout",
-            "Reset sidebar layout to default order, visibility, and width?",
+            "Reset sidebar layout to default order, submenu order, favorites, visibility, expanded state, and width?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
