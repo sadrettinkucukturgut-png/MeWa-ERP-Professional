@@ -12,12 +12,28 @@ class CariModel:
     DB_PATH = "database/mewa.db"
 
     @classmethod
+    def _ensure_contact_columns(cls):
+        with sqlite3.connect(cls.DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(cariler)")
+            existing = {str(row[1]).lower() for row in cursor.fetchall()}
+
+            if "mobile" not in existing:
+                cursor.execute("ALTER TABLE cariler ADD COLUMN mobile TEXT")
+            if "whatsapp" not in existing:
+                cursor.execute("ALTER TABLE cariler ADD COLUMN whatsapp TEXT")
+
+            conn.commit()
+
+    @classmethod
     def ekle(
         cls,
         cari_kodu,
         firma_unvani,
         yetkili,
         telefon,
+        mobile,
+        whatsapp,
         email,
         vergi_dairesi,
         vergi_no,
@@ -26,6 +42,8 @@ class CariModel:
         ilce,
         adres
     ):
+
+        cls._ensure_contact_columns()
 
         with sqlite3.connect(cls.DB_PATH) as conn:
 
@@ -39,6 +57,8 @@ class CariModel:
                 firma_unvani,
                 yetkili,
                 telefon,
+                mobile,
+                whatsapp,
                 email,
                 vergi_dairesi,
                 vergi_no,
@@ -49,7 +69,7 @@ class CariModel:
 
             )
 
-            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
 
             """, (
 
@@ -57,6 +77,8 @@ class CariModel:
                 firma_unvani,
                 yetkili,
                 telefon,
+                mobile,
+                whatsapp,
                 email,
                 vergi_dairesi,
                 vergi_no,
@@ -97,6 +119,8 @@ class CariModel:
     @classmethod
     def getir(cls, cari_kodu):
 
+        cls._ensure_contact_columns()
+
         with sqlite3.connect(cls.DB_PATH) as conn:
 
             cursor = conn.cursor()
@@ -109,6 +133,8 @@ class CariModel:
                 firma_unvani,
                 yetkili,
                 telefon,
+                COALESCE(mobile, ''),
+                COALESCE(whatsapp, ''),
                 email,
                 vergi_dairesi,
                 vergi_no,
@@ -132,6 +158,8 @@ class CariModel:
         firma_unvani,
         yetkili,
         telefon,
+        mobile,
+        whatsapp,
         email,
         vergi_dairesi,
         vergi_no,
@@ -140,6 +168,8 @@ class CariModel:
         ilce,
         adres
     ):
+
+        cls._ensure_contact_columns()
 
         with sqlite3.connect(cls.DB_PATH) as conn:
 
@@ -154,6 +184,8 @@ class CariModel:
                 firma_unvani = ?,
                 yetkili = ?,
                 telefon = ?,
+                mobile = ?,
+                whatsapp = ?,
                 email = ?,
                 vergi_dairesi = ?,
                 vergi_no = ?,
@@ -169,6 +201,8 @@ class CariModel:
                 firma_unvani,
                 yetkili,
                 telefon,
+                mobile,
+                whatsapp,
                 email,
                 vergi_dairesi,
                 vergi_no,
@@ -201,6 +235,7 @@ class CariModel:
 
     @classmethod
     def tedarikci_lookup_kayitlari(cls):
+        cls._ensure_contact_columns()
         with sqlite3.connect(cls.DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -216,6 +251,8 @@ class CariModel:
                 "firma_unvani",
                 "COALESCE(yetkili, '') AS yetkili",
                 "COALESCE(telefon, '') AS telefon",
+                "COALESCE(mobile, '') AS mobile",
+                "COALESCE(whatsapp, '') AS whatsapp",
                 "COALESCE(sehir, '') AS sehir",
                 "COALESCE(ulke, '') AS ulke",
             ]
@@ -275,6 +312,8 @@ class CariModel:
                     "phone": str(row.get("telefon") or "").strip(),
                     "yetkili": str(row.get("yetkili") or "").strip(),
                     "telefon": str(row.get("telefon") or "").strip(),
+                    "mobile": str(row.get("mobile") or "").strip(),
+                    "whatsapp": str(row.get("whatsapp") or "").strip(),
                     "city": str(row.get("sehir") or "").strip(),
                     "sehir": str(row.get("sehir") or "").strip(),
                     "country": str(row.get("ulke") or "").strip(),
@@ -289,6 +328,7 @@ class CariModel:
 
     @classmethod
     def lookup_kayitlari(cls):
+        cls._ensure_contact_columns()
         with sqlite3.connect(cls.DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -304,6 +344,8 @@ class CariModel:
                 "firma_unvani",
                 "COALESCE(yetkili, '') AS yetkili",
                 "COALESCE(telefon, '') AS telefon",
+                "COALESCE(mobile, '') AS mobile",
+                "COALESCE(whatsapp, '') AS whatsapp",
                 "COALESCE(sehir, '') AS sehir",
                 "COALESCE(ulke, '') AS ulke",
             ]
@@ -344,6 +386,8 @@ class CariModel:
                     "phone": str(row.get("telefon") or "").strip(),
                     "yetkili": str(row.get("yetkili") or "").strip(),
                     "telefon": str(row.get("telefon") or "").strip(),
+                    "mobile": str(row.get("mobile") or "").strip(),
+                    "whatsapp": str(row.get("whatsapp") or "").strip(),
                     "city": str(row.get("sehir") or "").strip(),
                     "sehir": str(row.get("sehir") or "").strip(),
                     "country": str(row.get("ulke") or "").strip(),
@@ -358,11 +402,15 @@ class CariModel:
 
     @classmethod
     def telefon_bilgisi(cls, cari_kodu):
+        cls._ensure_contact_columns()
         with sqlite3.connect(cls.DB_PATH) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT COALESCE(telefon, '')
+                SELECT
+                    COALESCE(whatsapp, ''),
+                    COALESCE(mobile, ''),
+                    COALESCE(telefon, '')
                 FROM cariler
                 WHERE cari_kodu = ?
                 """,
@@ -371,4 +419,7 @@ class CariModel:
             row = cursor.fetchone()
             if row is None:
                 return ""
-            return str(row[0] or "").strip()
+            whatsapp = str(row[0] or "").strip()
+            mobile = str(row[1] or "").strip()
+            phone = str(row[2] or "").strip()
+            return whatsapp or mobile or phone

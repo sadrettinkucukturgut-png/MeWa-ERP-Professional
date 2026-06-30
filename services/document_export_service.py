@@ -4,7 +4,6 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
-from urllib.parse import quote
 
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
@@ -13,6 +12,7 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox
 from services.excel_service import ExcelService
 from services.pdf_service import PDFService
 from services.print_service import PrintService
+from services.share_service import ShareContext, ShareMethod, ShareService
 
 
 DEFAULT_WHATSAPP_MESSAGE = (
@@ -197,61 +197,33 @@ class DocumentExportService:
         return PrintService.print_pdf_file(self.parent, pdf_path)
 
     def whatsapp_document(self, payload: DocumentPayload) -> bool:
-        pdf_path = self._ensure_temp_pdf(payload)
-        if not pdf_path:
-            QMessageBox.critical(self.parent, "Error", "Could not generate PDF for WhatsApp.")
-            return False
+        return self.share_document(payload, ShareMethod.WHATSAPP_DESKTOP)
 
-        whatsapp, _ = self._resolve_customer_contact(payload)
-        phone = self._normalize_phone(whatsapp)
-        if not phone:
-            QMessageBox.warning(self.parent, "Warning", "Customer WhatsApp number not found.")
-            return False
+    def share_document(self, payload: DocumentPayload, method: str | None = None) -> bool:
+        share_method = str(method or ShareService.get_default_method()).strip()
+        whatsapp, email = self._resolve_customer_contact(payload)
+        message = (
+            "Hello,\n\n"
+            f"Please find attached your {payload.title}.\n\n"
+            f"Document No:\n{payload.document_number}\n\n"
+            "Best Regards\n\n"
+            "MeWa Automotive Ltd.Şti."
+        )
 
-        text = quote(DEFAULT_WHATSAPP_MESSAGE)
-        file_url = quote(pdf_path)
-
-        desktop_url = QUrl(f"whatsapp://send?phone={phone}&text={text}&attachment={file_url}")
-        opened = QDesktopServices.openUrl(desktop_url)
-        if not opened:
-            web_url = QUrl(f"https://web.whatsapp.com/send?phone={phone}&text={text}&attachment={file_url}")
-            opened = QDesktopServices.openUrl(web_url)
-
-        if not opened:
-            QMessageBox.warning(self.parent, "Warning", "Could not open WhatsApp.")
-            return False
-        return True
+        context = ShareContext(
+            document_type=payload.title,
+            document_number=payload.document_number,
+            customer_code=payload.customer_code,
+            customer_name=payload.customer_name,
+            customer_email=email or payload.customer_email,
+            preferred_whatsapp=whatsapp,
+            message=message,
+            ensure_pdf_path=lambda: self._ensure_temp_pdf(payload),
+        )
+        return ShareService.execute(parent=self.parent, method=share_method, context=context)
 
     def email_document(self, payload: DocumentPayload) -> bool:
-        pdf_path = self._ensure_temp_pdf(payload)
-        if not pdf_path:
-            QMessageBox.critical(self.parent, "Error", "Could not generate PDF for email.")
-            return False
-
-        _, email = self._resolve_customer_contact(payload)
-        subject = quote(f"{payload.title} - {payload.document_number}".strip(" -"))
-        body = quote(
-            "Dear Customer,\n\n"
-            f"Document Number: {payload.document_number}\n"
-            f"Customer: {payload.customer_name}\n\n"
-            "Please find attached your document.\n\n"
-            "Best Regards\n"
-            "MeWa Automotive"
-        )
-
-        mailto = f"mailto:{email}?subject={subject}&body={body}"
-        opened = QDesktopServices.openUrl(QUrl(mailto))
-        if not opened:
-            QMessageBox.warning(self.parent, "Warning", "Could not open default mail client.")
-            return False
-
-        QMessageBox.information(
-            self.parent,
-            "Info",
-            "Mail client opened. Attach the generated PDF from this path:\n"
-            f"{pdf_path}",
-        )
-        return True
+        return self.share_document(payload, ShareMethod.EMAIL)
 
     def open_generated_file_folder(self, payload: DocumentPayload) -> bool:
         path = self._ensure_temp_pdf(payload)

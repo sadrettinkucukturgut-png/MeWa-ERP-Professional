@@ -22,12 +22,22 @@ from shared.app_assets import get_company_logo_icon, get_scaled_company_logo
 from ui.cari_hareketleri_dialog import CariHareketleriDialog
 from ui.cari_list_page import CariListPage
 from ui.dashboard_page import DashboardPage
+from ui.cash_page import CashPage
+from ui.banks_page import BanksPage
+from ui.bank_transactions_page import BankTransactionsPage
+from ui.customer_collections_page import CustomerCollectionsPage
+from ui.supplier_payments_page import SupplierPaymentsPage
+from ui.customer_statement_page import CustomerStatementPage
+from ui.cash_flow_page import CashFlowPage
+from ui.currency_position_page import CurrencyPositionPage
+from ui.finance_reports_page import FinanceReportsPage
 from ui.goods_receipt_page import GoodsReceiptPage
 from ui.export_sales_invoice_page import ExportSalesInvoicePage
 from ui.packing_list_page import PackingListPage
 from ui.purchase_invoice_page import PurchaseInvoicePage
 from ui.purchase_order_page import PurchaseOrderPage
 from ui.proforma_page import ProformaPage
+from ui.preferences_page import PreferencesPage
 from ui.sidebar_settings_page import SidebarSettingsPage
 from ui.stock_list_page import StockListPage
 from ui.stock_movement_ledger_page import StockMovementRecordsPage
@@ -201,6 +211,7 @@ class MainWindow(QMainWindow):
         self._expanded_module_ids = set()
         self._suppress_sidebar_state_save = False
         self._sidebar_settings_page = None
+        self._preferences_page = None
 
         self._header_height = 34
         self._group_height = 36
@@ -380,10 +391,15 @@ class MainWindow(QMainWindow):
                 "icon": "🏦",
                 "title": "Finans",
                 "items": [
-                    {"id": "cash", "label": "💵 Kasa", "callback": self.open_cash},
-                    {"id": "bank", "label": "🏦 Banka", "callback": self.open_bank},
-                    {"id": "checks", "label": "🧾 Cek / Senet", "callback": self.open_checks},
-                    {"id": "reports", "label": "📊 Finans Raporlari", "callback": self.open_finance_reports},
+                    {"id": "cash", "label": "💵 Cash", "callback": self.open_cash},
+                    {"id": "banks", "label": "🏦 Banks", "callback": self.open_banks},
+                    {"id": "bank_tx", "label": "📒 Bank Transactions", "callback": self.open_bank_transactions},
+                    {"id": "collections", "label": "💳 Customer Collections", "callback": self.open_customer_collections},
+                    {"id": "supplier_payments", "label": "💸 Supplier Payments", "callback": self.open_supplier_payments},
+                    {"id": "customer_statement", "label": "📄 Customer Statement", "callback": self.open_customer_statement},
+                    {"id": "cash_flow", "label": "📊 Cash Flow", "callback": self.open_cash_flow},
+                    {"id": "currency_position", "label": "💱 Currency Position", "callback": self.open_currency_position},
+                    {"id": "reports", "label": "📈 Finance Reports", "callback": self.open_finance_reports},
                 ],
             },
             {
@@ -1268,16 +1284,31 @@ class MainWindow(QMainWindow):
         self.tabs.open_tab(page, "📊 İhracat Satış Raporları")
 
     def open_cash(self):
-        self.tabs.open_tab(PlaceholderPage("Kasa"), "💵 Kasa")
+        self.tabs.open_tab(CashPage(), "💵 Cash")
 
-    def open_bank(self):
-        self.tabs.open_tab(PlaceholderPage("Banka"), "🏦 Banka")
+    def open_banks(self):
+        self.tabs.open_tab(BanksPage(), "🏦 Banks")
 
-    def open_checks(self):
-        self.tabs.open_tab(PlaceholderPage("Cek / Senet"), "🧾 Cek / Senet")
+    def open_bank_transactions(self):
+        self.tabs.open_tab(BankTransactionsPage(), "📒 Bank Transactions")
+
+    def open_customer_collections(self):
+        self.tabs.open_tab(CustomerCollectionsPage(), "💳 Customer Collections")
+
+    def open_supplier_payments(self):
+        self.tabs.open_tab(SupplierPaymentsPage(), "💸 Supplier Payments")
+
+    def open_customer_statement(self):
+        self.tabs.open_tab(CustomerStatementPage(), "📄 Customer Statement")
+
+    def open_cash_flow(self):
+        self.tabs.open_tab(CashFlowPage(), "📊 Cash Flow")
+
+    def open_currency_position(self):
+        self.tabs.open_tab(CurrencyPositionPage(), "💱 Currency Position")
 
     def open_finance_reports(self):
-        self.tabs.open_tab(PlaceholderPage("Finans Raporlari"), "📊 Finans Raporlari")
+        self.tabs.open_tab(FinanceReportsPage(), "📈 Finance Reports")
 
     def open_reports(self):
         self.tabs.open_tab(PlaceholderPage("Genel Raporlar"), "📊 Genel Raporlar")
@@ -1286,7 +1317,9 @@ class MainWindow(QMainWindow):
         self.tabs.open_tab(PlaceholderPage("Dashboard Analizleri"), "📉 Dashboard Analizleri")
 
     def open_settings(self):
-        self.tabs.open_tab(PlaceholderPage("Ayarlar"), "⚙ Ayarlar")
+        if self._preferences_page is None:
+            self._preferences_page = PreferencesPage()
+        self.tabs.open_tab(self._preferences_page, "⚙ Preferences")
 
     def open_sidebar_settings(self):
         if self._sidebar_settings_page is None:

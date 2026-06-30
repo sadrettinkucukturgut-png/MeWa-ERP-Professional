@@ -13,10 +13,11 @@ from models.cari_model import CariModel
 
 
 class NewCariDialog(QDialog):
-    def __init__(self, cari_kodu=None, parent=None):
+    def __init__(self, cari_kodu=None, parent=None, focus_field: str = ""):
         super().__init__(parent)
 
         self.cari_kodu = cari_kodu
+        self.focus_field = str(focus_field or "").strip().lower()
         self.is_edit_mode = cari_kodu is not None
 
         self.setWindowTitle("Cari Düzenle" if self.is_edit_mode else "Yeni Cari Kartı")
@@ -26,6 +27,8 @@ class NewCariDialog(QDialog):
         self.txt_unvan = QLineEdit()
         self.txt_yetkili = QLineEdit()
         self.txt_telefon = QLineEdit()
+        self.txt_mobile = QLineEdit()
+        self.txt_whatsapp = QLineEdit()
         self.txt_email = QLineEdit()
         self.txt_vergi_dairesi = QLineEdit()
         self.txt_vergi_no = QLineEdit()
@@ -50,6 +53,8 @@ class NewCariDialog(QDialog):
             ("Firma Ünvanı", self.txt_unvan),
             ("Yetkili", self.txt_yetkili),
             ("Telefon", self.txt_telefon),
+            ("Mobil", self.txt_mobile),
+            ("WhatsApp", self.txt_whatsapp),
             ("E-Posta", self.txt_email),
             ("Vergi Dairesi", self.txt_vergi_dairesi),
             ("Vergi No", self.txt_vergi_no),
@@ -78,6 +83,10 @@ class NewCariDialog(QDialog):
         if self.is_edit_mode:
             self._load_customer_data()
 
+        if self.focus_field == "whatsapp":
+            self.txt_whatsapp.setFocus()
+            self.txt_whatsapp.selectAll()
+
     def _load_customer_data(self):
         try:
             veri = CariModel.getir(self.cari_kodu)
@@ -90,13 +99,15 @@ class NewCariDialog(QDialog):
             self.txt_unvan.setText(veri[1] or "")
             self.txt_yetkili.setText(veri[2] or "")
             self.txt_telefon.setText(veri[3] or "")
-            self.txt_email.setText(veri[4] or "")
-            self.txt_vergi_dairesi.setText(veri[5] or "")
-            self.txt_vergi_no.setText(veri[6] or "")
-            self.txt_ulke.setText(veri[7] or "")
-            self.txt_sehir.setText(veri[8] or "")
-            self.txt_ilce.setText(veri[9] or "")
-            self.txt_adres.setPlainText(veri[10] or "")
+            self.txt_mobile.setText(veri[4] or "")
+            self.txt_whatsapp.setText(veri[5] or "")
+            self.txt_email.setText(veri[6] or "")
+            self.txt_vergi_dairesi.setText(veri[7] or "")
+            self.txt_vergi_no.setText(veri[8] or "")
+            self.txt_ulke.setText(veri[9] or "")
+            self.txt_sehir.setText(veri[10] or "")
+            self.txt_ilce.setText(veri[11] or "")
+            self.txt_adres.setPlainText(veri[12] or "")
         except Exception as exc:
             QMessageBox.critical(self, "Hata", f"Cari verileri yüklenirken bir hata oluştu:\n{exc}")
             self.reject()
@@ -106,6 +117,8 @@ class NewCariDialog(QDialog):
         firma_unvani = self.txt_unvan.text().strip()
         yetkili = self.txt_yetkili.text().strip()
         telefon = self.txt_telefon.text().strip()
+        mobile = self.txt_mobile.text().strip()
+        whatsapp = self.txt_whatsapp.text().strip()
         email = self.txt_email.text().strip()
         vergi_dairesi = self.txt_vergi_dairesi.text().strip()
         vergi_no = self.txt_vergi_no.text().strip()
@@ -139,6 +152,8 @@ class NewCariDialog(QDialog):
                     firma_unvani,
                     yetkili,
                     telefon,
+                    mobile,
+                    whatsapp,
                     email,
                     vergi_dairesi,
                     vergi_no,
@@ -154,6 +169,8 @@ class NewCariDialog(QDialog):
                     firma_unvani,
                     yetkili,
                     telefon,
+                    mobile,
+                    whatsapp,
                     email,
                     vergi_dairesi,
                     vergi_no,

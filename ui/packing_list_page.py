@@ -28,6 +28,7 @@ from services.document_preview_engine import (
     PrintManager,
 )
 from services.proforma_conversion_service import ProformaConversionService
+from services.whatsapp_service import WhatsAppService
 from shared.widgets.list_context_menu import ListContextMenuAction, ListContextMenuBuilder
 from shared.widgets.table_column_state import add_layout_lock_toggle, apply_table_column_standard
 from shared.widgets.table_visual import apply_list_table_visuals, create_record_count_label, set_record_count
@@ -464,21 +465,32 @@ class PackingListPage(QWidget):
             return
 
         template = self._detail_to_template(detail)
-        tmp = tempfile.NamedTemporaryFile(prefix="mewa_packing_", suffix=".pdf", delete=False)
-        tmp.close()
-        ok, err = PDFExporter.export_to_path(template, tmp.name)
-        if not ok:
-            QMessageBox.critical(self, "Error", f"Could not prepare PDF:\n{err}")
-            return
 
-        phone = ""
-        text = quote("Dear Customer, Please find attached your Packing List.")
-        file_url = quote(tmp.name)
-        opened = QDesktopServices.openUrl(QUrl(f"whatsapp://send?phone={phone}&text={text}&attachment={file_url}"))
-        if not opened:
-            opened = QDesktopServices.openUrl(QUrl(f"https://web.whatsapp.com/send?phone={phone}&text={text}&attachment={file_url}"))
-        if not opened:
-            QMessageBox.warning(self, "Warning", f"Could not open WhatsApp. PDF ready:\n{tmp.name}")
+        def ensure_pdf() -> str:
+            tmp = tempfile.NamedTemporaryFile(prefix="mewa_packing_", suffix=".pdf", delete=False)
+            tmp.close()
+            ok, err = PDFExporter.export_to_path(template, tmp.name)
+            if not ok:
+                QMessageBox.critical(self, "Error", f"Could not prepare PDF:\n{err}")
+                return ""
+            return tmp.name
+
+        message = (
+            "Hello,\n\n"
+            "Please find attached your Packing List.\n\n"
+            "Packing List No:\n"
+            f"{template.invoice_number}\n\n"
+            "Best Regards\n\n"
+            "MeWa Automotive Ltd.Şti."
+        )
+        WhatsAppService.send_document(
+            parent=self,
+            customer_code=template.customer_code,
+            customer_name=template.customer_name,
+            preferred_whatsapp=template.customer_whatsapp,
+            message=message,
+            ensure_pdf_path=ensure_pdf,
+        )
 
     def _email_selected(self):
         detail = self._selected_detail()

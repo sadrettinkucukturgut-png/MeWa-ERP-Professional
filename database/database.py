@@ -511,6 +511,135 @@ def _ensure_packing_list_tables(cursor):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_packing_list_history_list_id ON packing_list_history(packing_list_id)")
 
 
+def _ensure_finance_tables(cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cash_accounts(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cash_code TEXT UNIQUE NOT NULL,
+            cash_name TEXT NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            opening_balance REAL NOT NULL DEFAULT 0,
+            opening_date TEXT,
+            current_balance REAL NOT NULL DEFAULT 0,
+            notes TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bank_accounts(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bank_code TEXT UNIQUE NOT NULL,
+            bank_name TEXT NOT NULL,
+            branch_name TEXT,
+            iban TEXT,
+            swift_code TEXT,
+            account_number TEXT,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            opening_balance REAL NOT NULL DEFAULT 0,
+            opening_date TEXT,
+            current_balance REAL NOT NULL DEFAULT 0,
+            notes TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS finance_transactions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            transaction_no TEXT UNIQUE NOT NULL,
+            transaction_date TEXT NOT NULL,
+            transaction_type TEXT NOT NULL,
+            account_type TEXT NOT NULL,
+            cash_account_id INTEGER,
+            bank_account_id INTEGER,
+            customer_id INTEGER,
+            supplier_id INTEGER,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            debit REAL NOT NULL DEFAULT 0,
+            credit REAL NOT NULL DEFAULT 0,
+            reference_no TEXT,
+            document_no TEXT,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'Posted',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (cash_account_id) REFERENCES cash_accounts(id) ON UPDATE CASCADE ON DELETE SET NULL,
+            FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON UPDATE CASCADE ON DELETE SET NULL,
+            FOREIGN KEY (customer_id) REFERENCES cariler(id) ON UPDATE CASCADE ON DELETE SET NULL,
+            FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON UPDATE CASCADE ON DELETE SET NULL
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS customer_collections(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            collection_no TEXT UNIQUE NOT NULL,
+            customer_id INTEGER NOT NULL,
+            invoice_number TEXT,
+            amount REAL NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            collection_date TEXT NOT NULL,
+            payment_method TEXT NOT NULL,
+            cash_account_id INTEGER,
+            bank_account_id INTEGER,
+            reference_no TEXT,
+            notes TEXT,
+            status TEXT NOT NULL DEFAULT 'Posted',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES cariler(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+            FOREIGN KEY (cash_account_id) REFERENCES cash_accounts(id) ON UPDATE CASCADE ON DELETE SET NULL,
+            FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON UPDATE CASCADE ON DELETE SET NULL
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS supplier_payments(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            payment_no TEXT UNIQUE NOT NULL,
+            supplier_id INTEGER NOT NULL,
+            purchase_invoice_number TEXT,
+            amount REAL NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            payment_date TEXT NOT NULL,
+            payment_method TEXT NOT NULL,
+            cash_account_id INTEGER,
+            bank_account_id INTEGER,
+            reference_no TEXT,
+            notes TEXT,
+            status TEXT NOT NULL DEFAULT 'Posted',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+            FOREIGN KEY (cash_account_id) REFERENCES cash_accounts(id) ON UPDATE CASCADE ON DELETE SET NULL,
+            FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON UPDATE CASCADE ON DELETE SET NULL
+        )
+        """
+    )
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cash_accounts_currency ON cash_accounts(currency)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_bank_accounts_currency ON bank_accounts(currency)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_finance_txn_date ON finance_transactions(transaction_date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_finance_txn_account ON finance_transactions(account_type, cash_account_id, bank_account_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_finance_txn_customer ON finance_transactions(customer_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_finance_txn_supplier ON finance_transactions(supplier_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_customer_collections_customer ON customer_collections(customer_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_customer_collections_date ON customer_collections(collection_date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_supplier_payments_supplier ON supplier_payments(supplier_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_supplier_payments_date ON supplier_payments(payment_date)")
+
+
 def create_database():
 
     conn = sqlite3.connect("database/mewa.db")
@@ -611,6 +740,7 @@ def create_database():
     _ensure_sales_invoice_tables(cursor)
     _ensure_proforma_tables(cursor)
     _ensure_packing_list_tables(cursor)
+    _ensure_finance_tables(cursor)
 
     conn.commit()
     conn.close()

@@ -1,19 +1,23 @@
 import os
+import re
 import sqlite3
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
-from urllib.parse import quote
 
 from PySide6.QtCore import QRect, QRectF, QSize, Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPageLayout, QPageSize, QPainter, QPen, QPdfWriter, QPixmap
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter, QPrintPreviewWidget
-from PySide6.QtWidgets import QFileDialog, QLabel, QMainWindow, QMessageBox, QToolBar
+from PySide6.QtWidgets import QFileDialog, QLabel, QMainWindow, QMenu, QMessageBox, QToolBar
+from PySide6.QtWidgets import QToolButton, QWidgetAction
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Image as RLImage
 from reportlab.platypus import KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
@@ -25,6 +29,7 @@ except Exception:  # pragma: no cover - optional QtPdf module
     QPdfView = None
 
 from services.excel_service import ExcelService
+from services.share_service import ShareContext, ShareMethod, ShareService
 from shared.app_assets import get_branding_asset_path, get_company_logo_path, get_document_template_background_path
 
 DEFAULT_MESSAGE_NEVER_SAVED = "This document must be saved before preview."
@@ -58,6 +63,33 @@ def _packing_list_background_path() -> Path:
             return candidate
     fallback = get_document_template_background_path("PACKING_LIST")
     return fallback if fallback.exists() else template_dir / "background.png"
+
+
+def _resolve_unicode_fonts() -> tuple[str, str]:
+    regular_name = "MeWaUnicode"
+    bold_name = "MeWaUnicodeBold"
+    registered = set(pdfmetrics.getRegisteredFontNames())
+    if regular_name in registered and bold_name in registered:
+        return regular_name, bold_name
+
+    branding_font_dir = Path(__file__).resolve().parent.parent / "assets" / "branding" / "fonts"
+    windows_font_dir = Path(os.environ.get("WINDIR", "C:\\Windows")) / "Fonts"
+
+    candidates = [
+        (branding_font_dir / "DejaVuSans.ttf", branding_font_dir / "DejaVuSans-Bold.ttf"),
+        (branding_font_dir / "NotoSans-Regular.ttf", branding_font_dir / "NotoSans-Bold.ttf"),
+        (windows_font_dir / "DejaVuSans.ttf", windows_font_dir / "DejaVuSans-Bold.ttf"),
+        (windows_font_dir / "NotoSans-Regular.ttf", windows_font_dir / "NotoSans-Bold.ttf"),
+        (windows_font_dir / "arial.ttf", windows_font_dir / "arialbd.ttf"),
+    ]
+
+    for regular_path, bold_path in candidates:
+        if regular_path.exists() and bold_path.exists():
+            pdfmetrics.registerFont(TTFont(regular_name, str(regular_path)))
+            pdfmetrics.registerFont(TTFont(bold_name, str(bold_path)))
+            return regular_name, bold_name
+
+    return "Times-Roman", "Times-Bold"
 
 
 @dataclass
@@ -1155,23 +1187,30 @@ class ProformaPlatypusRenderer:
 
 
 class PackingListPlatypusRenderer:
+    BOTTOM_FOOTER_LINES = [
+        "HEADOFFICE ADDRESS : Horozluhan Mah. Ahi Evran Cad. PC:42120 Selçuklu Konya / TURKEY",
+        "FACTORY ADDRESS : Fevzi Çakmak Mah. Astim Industrial Zone PC:42200 Karatay Konya / TURKEY",
+        "Tel: +90 532 499 68 89    WhatsApp: +90 532 499 68 89    e-Mail: export@mewaautomotive.com",
+    ]
+
     @staticmethod
     def _styles():
+        regular_font, bold_font = _resolve_unicode_fonts()
         base = getSampleStyleSheet()
         return {
             "title": ParagraphStyle(
                 "PackingListTitle",
                 parent=base["Heading1"],
-                fontName="Helvetica-Bold",
-                fontSize=18,
-                leading=20,
+                fontName=bold_font,
+                fontSize=20,
+                leading=22,
                 textColor=colors.HexColor("#0F172A"),
                 alignment=1,
             ),
             "section": ParagraphStyle(
                 "PackingListSection",
                 parent=base["Heading4"],
-                fontName="Helvetica-Bold",
+                fontName=bold_font,
                 fontSize=10,
                 leading=12,
                 textColor=colors.HexColor("#0F172A"),
@@ -1179,23 +1218,24 @@ class PackingListPlatypusRenderer:
             "normal": ParagraphStyle(
                 "PackingListNormal",
                 parent=base["BodyText"],
-                fontName="Helvetica",
-                fontSize=8,
-                leading=10,
+                fontName=regular_font,
+                fontSize=8.5,
+                leading=10.5,
                 textColor=colors.black,
             ),
             "small": ParagraphStyle(
                 "PackingListSmall",
                 parent=base["BodyText"],
-                fontName="Helvetica",
-                fontSize=7,
-                leading=9,
-                textColor=colors.black,
+                fontName=regular_font,
+                fontSize=6.7,
+                leading=8.2,
+                textColor=colors.HexColor("#6B7280"),
+                alignment=1,
             ),
             "table_header": ParagraphStyle(
                 "PackingListHeader",
                 parent=base["BodyText"],
-                fontName="Helvetica-Bold",
+                fontName=bold_font,
                 fontSize=8,
                 leading=10,
                 textColor=colors.white,
@@ -1204,7 +1244,7 @@ class PackingListPlatypusRenderer:
             "table_body": ParagraphStyle(
                 "PackingListBody",
                 parent=base["BodyText"],
-                fontName="Helvetica",
+                fontName=regular_font,
                 fontSize=8,
                 leading=10,
                 textColor=colors.black,
@@ -1212,7 +1252,7 @@ class PackingListPlatypusRenderer:
             "table_body_right": ParagraphStyle(
                 "PackingListBodyRight",
                 parent=base["BodyText"],
-                fontName="Helvetica",
+                fontName=regular_font,
                 fontSize=8,
                 leading=10,
                 textColor=colors.black,
@@ -1221,7 +1261,7 @@ class PackingListPlatypusRenderer:
             "totals": ParagraphStyle(
                 "PackingListTotals",
                 parent=base["BodyText"],
-                fontName="Helvetica-Bold",
+                fontName=bold_font,
                 fontSize=9,
                 leading=11,
                 textColor=colors.black,
@@ -1229,7 +1269,7 @@ class PackingListPlatypusRenderer:
             "totals_right": ParagraphStyle(
                 "PackingListTotalsRight",
                 parent=base["BodyText"],
-                fontName="Helvetica-Bold",
+                fontName=bold_font,
                 fontSize=9,
                 leading=11,
                 textColor=colors.black,
@@ -1241,11 +1281,19 @@ class PackingListPlatypusRenderer:
     def _safe_text(value: str) -> str:
         return str(value or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+    @staticmethod
+    def _format_eu_date(date_text: str) -> str:
+        text = str(date_text or "").strip()
+        match = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", text)
+        if match:
+            return f"{match.group(3)}/{match.group(2)}/{match.group(1)}"
+        return text
+
     @classmethod
     def _header(cls, template: DocumentTemplate, styles: dict):
         page_width = A4[0] - (15 * mm) - (15 * mm)
-        logo_width = 74
-        company_width = 240
+        logo_width = 124
+        company_width = 230
         title_width = page_width - logo_width - company_width
 
         logo_flowable = Spacer(1, 1)
@@ -1253,27 +1301,43 @@ class PackingListPlatypusRenderer:
         if not logo_path.exists():
             logo_path = get_company_logo_path()
         if logo_path and Path(logo_path).exists():
-            logo_flowable = RLImage(str(logo_path), width=62, height=62)
+            try:
+                img = ImageReader(str(logo_path))
+                iw, ih = img.getSize()
+                target_width = 116.0
+                target_height = max(28.0, (target_width * float(ih)) / float(iw or 1))
+                logo_flowable = RLImage(str(logo_path), width=target_width, height=target_height)
+            except Exception:
+                logo_flowable = RLImage(str(logo_path), width=116, height=34)
 
         company_lines = [
-            f"<b>{cls._safe_text(template.company_name)}</b>",
-            cls._safe_text(template.company_address),
-            f"Phone: {cls._safe_text(template.company_phone)}",
-            f"Email: {cls._safe_text(template.company_email)}",
-            f"Website: {cls._safe_text(template.company_website)}",
+            "<b>MeWa Automotive Ltd.Sti.</b>",
+            "Konya / TURKIYE",
+            "+90 532 499 68 89",
+            "export@mewaautomotive.com",
+            "www.mewaautomotive.com",
         ]
-        company_paragraph = Paragraph("<br/>".join(company_lines), styles["normal"])
+        company_paragraph = Paragraph(
+            "<b>MeWa Automotive Ltd.Şti.</b><br/>"
+            "<font size='8'>Konya / TURKIYE<br/>"
+            "+90 532 499 68 89<br/>"
+            "export@mewaautomotive.com<br/>"
+            "www.mewaautomotive.com</font>",
+            styles["normal"],
+        )
 
         title_table = Table(
-            [[Paragraph("PACKING LIST", styles["title"])]],
+            [
+                [Paragraph("PACKING LIST", styles["title"])],
+            ],
             colWidths=[title_width],
             rowHeights=[62],
         )
         title_table.setStyle(
             TableStyle(
                 [
-                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F1F5F9")),
-                    ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#CBD5E1")),
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FFFFFF")),
+                    ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#D1D5DB")),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 6),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 6),
@@ -1327,20 +1391,15 @@ class PackingListPlatypusRenderer:
         page_width = A4[0] - (15 * mm) - (15 * mm)
         box_width = (page_width - 8) / 2.0
         buyer_rows = [
-            ("Müşteri", template.customer_company_name or template.customer_name),
-            ("Müşteri Kodu", template.customer_code),
-            ("Ülke", template.customer_country),
-            ("Consignee", template.bill_to_company or template.customer_company_name),
-            ("Notify Party", template.ship_to_company or template.customer_company_name),
+            ("Customer", template.customer_company_name or template.customer_name),
+            ("Customer Code", template.customer_code),
+            ("Country", template.customer_country),
+            ("Full Address", template.customer_address),
         ]
         shipping_rows = [
             ("Packing List No", template.invoice_number),
-            ("Tarih", template.invoice_date),
-            ("Para Birimi", template.currency),
-            ("Teslim Şartları", template.delivery_terms),
-            ("Ödeme Şartları", template.payment_terms),
-            ("Tahmini Teslim", template.estimated_delivery),
-            ("Paketleme", template.packing_type),
+            ("Date", cls._format_eu_date(template.invoice_date)),
+            ("Delivery Terms", template.delivery_terms),
         ]
 
         wrapper = Table(
@@ -1351,79 +1410,137 @@ class PackingListPlatypusRenderer:
         return wrapper
 
     @classmethod
+    def _pallet_sort_key(cls, pallet_name: str) -> tuple[int, str]:
+        text = str(pallet_name or "").strip()
+        match = re.search(r"(\d+)", text)
+        if match:
+            return int(match.group(1)), text.lower()
+        return 10**9, text.lower()
+
+    @classmethod
     def _item_table(cls, items: list[DocumentLineItem], styles: dict):
-        col_widths = [24, 62, 210, 74, 48, 40, 70, 72]
+        col_widths = [62, 212, 64, 70, 74, 74]
         rows = [[
-            Paragraph("#", styles["table_header"]),
             Paragraph("PALLET", styles["table_header"]),
-            Paragraph("Description", styles["table_header"]),
-            Paragraph("Quantity Weight", styles["table_header"]),
-            Paragraph("Miktar", styles["table_header"]),
-            Paragraph("Birim", styles["table_header"]),
-            Paragraph("Net Weight", styles["table_header"]),
-            Paragraph("Gross Weight", styles["table_header"]),
+            Paragraph("DESCRIPTION", styles["table_header"]),
+            Paragraph("QUANTITY", styles["table_header"]),
+            Paragraph("QUANTITY WEIGHT", styles["table_header"]),
+            Paragraph("TOTAL NET WEIGHT", styles["table_header"]),
+            Paragraph("TOTAL GROSS WEIGHT", styles["table_header"]),
         ]]
 
         if not items:
             items = [DocumentLineItem(1, "", "", "", "", "", "", "", "", "")]
 
-        for item in items:
-            rows.append(
-                [
-                    Paragraph(cls._safe_text(str(item.line_no)), styles["table_body_right"]),
-                    Paragraph(cls._safe_text(item.product_code), styles["table_body"]),
-                    Paragraph(cls._safe_text(item.description), styles["table_body"]),
-                    Paragraph(cls._safe_text(item.unit_price or "0.00 KG"), styles["table_body_right"]),
-                    Paragraph(cls._safe_text(item.quantity), styles["table_body_right"]),
-                    Paragraph(cls._safe_text(item.unit), styles["table_body"]),
-                    Paragraph(cls._safe_text(item.amount or "0.00 KG"), styles["table_body_right"]),
-                    Paragraph(cls._safe_text(item.total or "0.00 KG"), styles["table_body_right"]),
-                ]
-            )
+        grouped: dict[str, list[tuple[int, DocumentLineItem]]] = {}
+        for index, item in enumerate(items):
+            pallet = str(item.product_code or "").strip()
+            grouped.setdefault(pallet, []).append((index, item))
+
+        sorted_pallets = sorted(grouped.keys(), key=cls._pallet_sort_key)
+        span_ranges: list[tuple[int, int]] = []
+        row_cursor = 1
+
+        for pallet in sorted_pallets:
+            source_rows = sorted(grouped[pallet], key=lambda pair: pair[0])
+            pallet_gross = 0.0
+            for _, row_item in source_rows:
+                pallet_gross += cls._parse_float(row_item.total or "0")
+
+            pallet_gross_text = f"{pallet_gross:.3f} KG"
+            start_row = row_cursor
+            for order, (_, item) in enumerate(source_rows):
+                pallet_cell_text = cls._safe_text(item.product_code) if order == 0 else ""
+                gross_cell_text = cls._safe_text(pallet_gross_text) if order == 0 else ""
+                rows.append(
+                    [
+                        Paragraph(pallet_cell_text, styles["table_body"]),
+                        Paragraph(cls._safe_text(item.description), styles["table_body"]),
+                        Paragraph(cls._safe_text(item.quantity), styles["table_body"]),
+                        Paragraph(cls._safe_text(cls._format_weight_2(item.unit_price or "0.000 KG")), styles["table_body_right"]),
+                        Paragraph(cls._safe_text(item.amount or "0.00 KG"), styles["table_body_right"]),
+                        Paragraph(gross_cell_text, styles["table_body_right"]),
+                    ]
+                )
+                row_cursor += 1
+
+            end_row = row_cursor - 1
+            if end_row > start_row:
+                span_ranges.append((start_row, end_row))
 
         table = Table(rows, colWidths=col_widths, repeatRows=1)
         style_cmds = [
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
             ("INNERGRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D1D5DB")),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (-1, -1), 4),
             ("RIGHTPADDING", (0, 0), (-1, -1), 4),
             ("TOPPADDING", (0, 0), (-1, -1), 4),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("WORDWRAP", (2, 1), (2, -1), "CJK"),
-            ("ALIGN", (1, 1), (1, -1), "CENTER"),
-            ("ALIGN", (3, 1), (4, -1), "CENTER"),
-            ("ALIGN", (5, 1), (7, -1), "RIGHT"),
+            ("WORDWRAP", (1, 1), (1, -1), "CJK"),
+            ("ALIGN", (0, 1), (0, -1), "CENTER"),
+            ("ALIGN", (2, 1), (5, -1), "RIGHT"),
+            ("ALIGN", (2, 0), (2, -1), "CENTER"),
+            ("VALIGN", (0, 1), (0, -1), "MIDDLE"),
+            ("VALIGN", (5, 1), (5, -1), "MIDDLE"),
         ]
+
+        for start_row, end_row in span_ranges:
+            style_cmds.append(("SPAN", (0, start_row), (0, end_row)))
+            style_cmds.append(("SPAN", (5, start_row), (5, end_row)))
+            style_cmds.append(("ALIGN", (0, start_row), (0, end_row), "CENTER"))
+            style_cmds.append(("ALIGN", (5, start_row), (5, end_row), "CENTER"))
+            style_cmds.append(("VALIGN", (0, start_row), (0, end_row), "MIDDLE"))
+            style_cmds.append(("VALIGN", (5, start_row), (5, end_row), "MIDDLE"))
+
         for row_index in range(1, len(rows)):
-            background = colors.white if row_index % 2 else colors.HexColor("#F8FAFC")
-            style_cmds.append(("BACKGROUND", (0, row_index), (-1, row_index), background))
+            style_cmds.append(("BACKGROUND", (0, row_index), (-1, row_index), colors.white))
         table.setStyle(TableStyle(style_cmds))
         return table
+
+    @staticmethod
+    def _parse_float(value: str) -> float:
+        txt = str(value or "").replace("KG", "").replace("PCS", "").strip()
+        try:
+            return float(txt or 0)
+        except ValueError:
+            return 0.0
+
+    @classmethod
+    def _format_weight_2(cls, value: str) -> str:
+        return f"{cls._parse_float(value):.2f} KG"
+
+    @classmethod
+    def _format_pieces(cls, value: float) -> str:
+        if float(value).is_integer():
+            return f"{int(value)} PCS"
+        return f"{value:.3f} PCS"
 
     @classmethod
     def _totals_table(cls, template: DocumentTemplate, styles: dict):
         total_pieces = 0.0
+        total_net = 0.0
+        total_gross = 0.0
+
         for item in template.items:
-            try:
-                total_pieces += float(str(item.quantity or "0").replace("PCS", "").strip() or 0)
-            except ValueError:
-                total_pieces += 0.0
+            total_pieces += cls._parse_float(item.quantity)
+            total_net += cls._parse_float(item.amount)
+            total_gross += cls._parse_float(item.total)
 
         unique_pallets = sorted({str(item.product_code or "").strip() for item in template.items if str(item.product_code or "").strip()})
         totals = [
-            [Paragraph("Total Pallets", styles["totals"]), Paragraph(cls._safe_text(str(len(unique_pallets))), styles["totals_right"])],
-            [Paragraph("Total Pieces", styles["totals"]), Paragraph(cls._safe_text(f"{total_pieces:.0f} PCS" if float(total_pieces).is_integer() else f"{total_pieces:.3f} PCS"), styles["totals_right"])],
-            [Paragraph("Net Weight", styles["totals"]), Paragraph(cls._safe_text(template.net_total or template.subtotal or "0.000"), styles["totals_right"])],
-            [Paragraph("Gross Weight", styles["totals"]), Paragraph(cls._safe_text(template.grand_total or "0.000"), styles["totals_right"])],
+            [Paragraph("TOTAL PALLETS", styles["totals"]), Paragraph(cls._safe_text(str(len(unique_pallets))), styles["totals_right"])],
+            [Paragraph("TOTAL PIECES", styles["totals"]), Paragraph(cls._safe_text(cls._format_pieces(total_pieces)), styles["totals_right"])],
+            [Paragraph("TOTAL NET WEIGHT", styles["totals"]), Paragraph(cls._safe_text(f"{total_net:.3f} KG"), styles["totals_right"])],
+            [Paragraph("TOTAL GROSS WEIGHT", styles["totals"]), Paragraph(cls._safe_text(f"{total_gross:.3f} KG"), styles["totals_right"])],
         ]
         table = Table(totals, colWidths=[110, 120], hAlign="RIGHT")
         table.setStyle(
             TableStyle(
                 [
-                    ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
                     ("INNERGRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D1D5DB")),
                     ("LEFTPADDING", (0, 0), (-1, -1), 6),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 6),
@@ -1436,54 +1553,82 @@ class PackingListPlatypusRenderer:
 
     @classmethod
     def _footer(cls, template: DocumentTemplate, styles: dict):
-        logo_stamp = Spacer(1, 1)
-        stamp_path = _preferred_branding_asset("stamp.png", "company_stamp.png")
-        if not stamp_path.exists():
-            stamp_path = get_branding_asset_path("company_stamp")
-        if stamp_path.exists():
-            logo_stamp = RLImage(str(stamp_path), width=110, height=70)
-
         signature = Spacer(1, 1)
-        signature_path = _preferred_branding_asset("signature.png", "company_signature.png")
+        signature_path = _preferred_branding_asset("company_signature.png", "signature.png")
         if not signature_path.exists():
             signature_path = get_branding_asset_path("company_signature")
         if signature_path.exists():
-            signature = RLImage(str(signature_path), width=130, height=70)
+            try:
+                img = ImageReader(str(signature_path))
+                iw, ih = img.getSize()
+                target_width = 166.0
+                target_height = max(84.0, (target_width * float(ih)) / float(iw or 1))
+                signature = RLImage(str(signature_path), width=target_width, height=target_height)
+            except Exception:
+                signature = RLImage(str(signature_path), width=166, height=88)
+
+        notes_box = Paragraph("<b>NOTES</b><br/>" + cls._safe_text(template.notes or "-"), styles["normal"])
+
+        signature_table = Table([[signature]], colWidths=[196], rowHeights=[110])
+        signature_table.setStyle(
+            TableStyle(
+                [
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 8),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ]
+            )
+        )
 
         footer_table = Table(
             [[
-                Paragraph("<b>Notes</b><br/>" + cls._safe_text(template.notes or "-"), styles["normal"]),
-                Paragraph("<b>Terms</b><br/>" + cls._safe_text(template.terms_conditions or "-"), styles["normal"]),
-                signature,
-                logo_stamp,
+                notes_box,
+                signature_table,
             ]],
-            colWidths=[150, 150, 130, 130],
+            colWidths=[334, 196],
         )
         footer_table.setStyle(
             TableStyle(
                 [
-                    ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
                     ("INNERGRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D1D5DB")),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("ALIGN", (2, 0), (3, 0), "CENTER"),
-                    ("VALIGN", (2, 0), (3, 0), "MIDDLE"),
+                    ("ALIGN", (1, 0), (1, 0), "CENTER"),
+                    ("VALIGN", (1, 0), (1, 0), "MIDDLE"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 6),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                    ("TOPPADDING", (0, 0), (-1, -1), 10),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+                    ("TOPPADDING", (0, 0), (-1, -1), 8),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
                 ]
             )
         )
-        return [footer_table, Spacer(1, 6), Paragraph("Prepared by MeWa ERP Professional", ParagraphStyle("PackingThanks", parent=styles["small"], alignment=1))]
+        return [footer_table]
 
     @classmethod
-    def _draw_background_assets(cls, canvas, _doc):
-        page_w, page_h = A4
-        background = _packing_list_background_path()
-        if background.exists():
-            canvas.saveState()
-            canvas.drawImage(str(background), 0, 0, width=page_w, height=page_h, preserveAspectRatio=False, mask="auto")
-            canvas.restoreState()
+    def _draw_background_assets(cls, canvas, doc):
+        canvas.saveState()
+        left_x = float(doc.leftMargin)
+        right_x = float(A4[0] - doc.rightMargin)
+        footer_top = 22.0 * mm
+
+        canvas.setStrokeColor(colors.HexColor("#D1D5DB"))
+        canvas.setLineWidth(0.5)
+        canvas.line(left_x, footer_top + 10, right_x, footer_top + 10)
+
+        regular_font, _ = _resolve_unicode_fonts()
+        canvas.setFont(regular_font, 6.7)
+        canvas.setFillColor(colors.HexColor("#6B7280"))
+
+        y = footer_top
+        for line in cls.BOTTOM_FOOTER_LINES:
+            canvas.drawCentredString((left_x + right_x) / 2.0, y, line)
+            y -= 8
+
+        canvas.restoreState()
 
     @classmethod
     def export_to_path(cls, template: DocumentTemplate, save_path: str) -> tuple[bool, str | None]:
@@ -1495,7 +1640,7 @@ class PackingListPlatypusRenderer:
                 leftMargin=15 * mm,
                 rightMargin=15 * mm,
                 topMargin=18 * mm,
-                bottomMargin=18 * mm,
+                bottomMargin=34 * mm,
                 title="PACKING LIST",
                 author=template.company_name or "MeWa Automotive",
             )
@@ -1505,15 +1650,8 @@ class PackingListPlatypusRenderer:
                 Spacer(1, 8),
                 cls._buyer_and_shipping(template, styles),
                 Spacer(1, 10),
+                cls._item_table(list(template.items or []), styles),
             ]
-
-            items = list(template.items or [])
-            page_chunk = 24
-            for idx in range(0, max(1, len(items)), page_chunk):
-                story.append(cls._item_table(items[idx : idx + page_chunk], styles))
-                if idx + page_chunk < len(items):
-                    story.append(Spacer(1, 6))
-                    story.append(PageBreak())
 
             story.extend([
                 Spacer(1, 10),
@@ -1704,8 +1842,18 @@ class DocumentPreviewWindow(QMainWindow):
         self.action_print = self.toolbar.addAction("Print")
         self.action_pdf = self.toolbar.addAction("Save PDF")
         self.action_excel = self.toolbar.addAction("Export Excel")
-        self.action_whatsapp = self.toolbar.addAction("WhatsApp")
-        self.action_email = self.toolbar.addAction("Email")
+
+        self.share_button = QToolButton(self)
+        self.share_button.setText("Share")
+        self.share_button.setPopupMode(QToolButton.MenuButtonPopup)
+        self.share_button.clicked.connect(self._on_share_default)
+        self.share_menu = QMenu(self)
+        self.share_button.setMenu(self.share_menu)
+        self.share_widget_action = QWidgetAction(self)
+        self.share_widget_action.setDefaultWidget(self.share_button)
+        self.toolbar.addAction(self.share_widget_action)
+        self._build_share_menu()
+
         self.toolbar.addSeparator()
         self.action_zoom_in = self.toolbar.addAction("Zoom In")
         self.action_zoom_out = self.toolbar.addAction("Zoom Out")
@@ -1720,8 +1868,6 @@ class DocumentPreviewWindow(QMainWindow):
         self.action_print.triggered.connect(self._on_print)
         self.action_pdf.triggered.connect(self._on_save_pdf)
         self.action_excel.triggered.connect(self._on_export_excel)
-        self.action_whatsapp.triggered.connect(self._on_whatsapp)
-        self.action_email.triggered.connect(self._on_email)
         self.action_zoom_in.triggered.connect(self._on_zoom_in)
         self.action_zoom_out.triggered.connect(self._on_zoom_out)
         self.action_fit.triggered.connect(self._on_fit)
@@ -1737,6 +1883,70 @@ class DocumentPreviewWindow(QMainWindow):
             self.action_prev.setEnabled(False)
             self.action_next.setEnabled(False)
             self.action_last.setEnabled(False)
+
+    def _build_share_menu(self):
+        self.share_menu.clear()
+        self.action_share_wa_desktop = self.share_menu.addAction("WhatsApp Desktop")
+        self.action_share_wa_web = self.share_menu.addAction("WhatsApp Web")
+        self.action_share_email = self.share_menu.addAction("Email")
+        self.action_share_open_folder = self.share_menu.addAction("Open PDF Folder")
+        self.action_share_copy_path = self.share_menu.addAction("Copy PDF Path")
+
+        self.share_menu.addSeparator()
+        for name in ["Microsoft Teams", "Telegram", "Google Drive", "OneDrive", "Dropbox", "FTP"]:
+            action = self.share_menu.addAction(name)
+            action.setEnabled(False)
+
+        self.share_menu.addSeparator()
+        self.action_share_remember = self.share_menu.addAction("Remember my default sharing method")
+        self.action_share_remember.setCheckable(True)
+        self.action_share_remember.setChecked(ShareService.is_remember_default_enabled())
+        self.action_share_remember.toggled.connect(ShareService.set_remember_default_enabled)
+
+        self.action_share_wa_desktop.triggered.connect(lambda: self._share_execute(ShareMethod.WHATSAPP_DESKTOP))
+        self.action_share_wa_web.triggered.connect(lambda: self._share_execute(ShareMethod.WHATSAPP_WEB))
+        self.action_share_email.triggered.connect(lambda: self._share_execute(ShareMethod.EMAIL))
+        self.action_share_open_folder.triggered.connect(lambda: self._share_execute(ShareMethod.OPEN_FOLDER))
+        self.action_share_copy_path.triggered.connect(lambda: self._share_execute(ShareMethod.COPY_PDF_PATH))
+
+    def _on_share_default(self):
+        self._share_execute(ShareService.get_default_method())
+
+    def _build_share_context(self) -> ShareContext:
+        if str(self.template.document_kind or "").upper() == "PACKING_LIST":
+            message = (
+                "Hello,\n\n"
+                "Please find attached your Packing List.\n\n"
+                "Packing List No:\n"
+                f"{self.template.invoice_number}\n\n"
+                "Best Regards\n\n"
+                "MeWa Automotive Ltd.Şti."
+            )
+        else:
+            message = (
+                "Hello,\n\n"
+                f"Please find attached your {self._display_title}.\n\n"
+                f"Document No:\n{self.template.invoice_number}\n\n"
+                "Best Regards\n\n"
+                "MeWa Automotive Ltd.Şti."
+            )
+
+        return ShareContext(
+            document_type=self._display_title,
+            document_number=self.template.invoice_number,
+            customer_code=self.template.customer_code,
+            customer_name=self.template.customer_name,
+            customer_email=self.template.customer_email,
+            preferred_whatsapp=self.template.customer_whatsapp,
+            message=message,
+            ensure_pdf_path=self._ensure_pdf_for_share,
+        )
+
+    def _share_execute(self, method: str):
+        context = self._build_share_context()
+        ok = ShareService.execute(parent=self, method=method, context=context)
+        if ok and ShareService.is_remember_default_enabled():
+            ShareService.set_default_method(method)
 
     def _refresh_pdf_preview(self) -> None:
         if not self._is_pdf_backed:
@@ -1842,51 +2052,10 @@ class DocumentPreviewWindow(QMainWindow):
         QMessageBox.information(self, "Success", "Excel exported successfully.")
 
     def _on_whatsapp(self):
-        pdf_path = self._ensure_pdf_for_share()
-        if not pdf_path:
-            return
-
-        phone = self._normalize_phone(self.template.customer_whatsapp)
-        if not phone:
-            QMessageBox.warning(self, "Warning", "Customer WhatsApp number not found.")
-            return
-
-        text = quote(DEFAULT_WHATSAPP_MESSAGE)
-        file_url = quote(pdf_path)
-        desktop = QUrl(f"whatsapp://send?phone={phone}&text={text}&attachment={file_url}")
-        opened = QDesktopServices.openUrl(desktop)
-        if not opened:
-            web = QUrl(f"https://web.whatsapp.com/send?phone={phone}&text={text}&attachment={file_url}")
-            opened = QDesktopServices.openUrl(web)
-
-        if not opened:
-            QMessageBox.warning(self, "Warning", "Could not open WhatsApp.")
+        self._share_execute(ShareMethod.WHATSAPP_DESKTOP)
 
     def _on_email(self):
-        pdf_path = self._ensure_pdf_for_share()
-        if not pdf_path:
-            return
-
-        subject = quote(f"{self._display_title} - {self.template.invoice_number}".strip(" -"))
-        body = quote(
-            "Dear Customer,\n\n"
-            f"Document Number: {self.template.invoice_number}\n"
-            f"Customer: {self.template.customer_name}\n\n"
-            "Please find attached your document.\n\n"
-            "Best Regards\n"
-            "MeWa Automotive"
-        )
-        mailto = f"mailto:{self.template.customer_email}?subject={subject}&body={body}"
-        if not QDesktopServices.openUrl(QUrl(mailto)):
-            QMessageBox.warning(self, "Warning", "Could not open default mail client.")
-            return
-
-        QMessageBox.information(
-            self,
-            "Info",
-            "Mail client opened. Attach the generated PDF from this path:\n"
-            f"{pdf_path}",
-        )
+        self._share_execute(ShareMethod.EMAIL)
 
     def _on_prev_page(self):
         if self._is_pdf_backed:
