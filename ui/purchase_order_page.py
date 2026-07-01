@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from models.purchase_order_model import PurchaseOrderModel
+from shared.app_assets import get_company_logo_path
 from shared.widgets.document_toolbar import DocumentToolbar
 from shared.widgets.table_column_state import apply_table_column_standard
 from shared.widgets.table_visual import apply_list_table_visuals, create_record_count_label, set_record_count
@@ -64,6 +65,10 @@ class PurchaseOrderPage(QWidget):
         self.action_edit_purchase = QAction("✏️ Düzenle", self)
         self.action_edit_purchase.triggered.connect(self._edit_selected_purchase_order)
         self.toolbar.addAction(self.action_edit_purchase)
+
+        self.action_delete = QAction("🗑 Sil", self)
+        self.action_delete.triggered.connect(self._delete_selected_purchase_order)
+        self.toolbar.addAction(self.action_delete)
 
         self.action_delete_purchase = QAction("🛑 İptal", self)
         self.action_delete_purchase.triggered.connect(self._cancel_selected_purchase_order)
@@ -252,6 +257,20 @@ class PurchaseOrderPage(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Hata", f"İptal işlemi başarısız oldu:\n{exc}")
 
+    def _delete_selected_purchase_order(self):
+        order_number = self._get_selected_order_number()
+        if not order_number:
+            return
+
+        answer = QMessageBox.question(self, "Sil", "Bu kayıt silinsin mi?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            PurchaseOrderModel.delete_order(order_number)
+            self.load_purchase_orders(self.search_input.text())
+        except Exception as exc:
+            QMessageBox.warning(self, "Uyarı", str(exc))
+
     def _show_column_menu(self):
         menu = QMenu(self)
         for index, label in enumerate(self.column_labels):
@@ -268,11 +287,17 @@ class PurchaseOrderPage(QWidget):
             self.purchase_table.selectRow(row)
 
         menu = QMenu(self)
+        open_action = QAction("Open", self)
         edit_action = QAction("Düzenle", self)
+        delete_action = QAction("Delete", self)
         edit_action.triggered.connect(self._edit_selected_purchase_order)
+        open_action.triggered.connect(self._edit_selected_purchase_order)
+        delete_action.triggered.connect(self._delete_selected_purchase_order)
         cancel_action = QAction("İptal", self)
         cancel_action.triggered.connect(self._cancel_selected_purchase_order)
+        menu.addAction(open_action)
         menu.addAction(edit_action)
+        menu.addAction(delete_action)
         menu.addAction(cancel_action)
         menu.exec_(self.purchase_table.viewport().mapToGlobal(position))
 
@@ -387,12 +412,7 @@ class PurchaseOrderPage(QWidget):
             self.logo_watermark.clear()
 
     def _resolve_logo_path(self) -> Path:
-        project_root = Path(__file__).resolve().parent.parent
-        official = project_root / "assets" / "logos" / "mewa_logo.png"
-        fallback = project_root / "assets" / "logo.png"
-        if official.exists():
-            return official
-        return fallback
+        return get_company_logo_path()
 
     @staticmethod
     def _safe_float(value):

@@ -6,6 +6,7 @@ from PySide6.QtCore import QDate, QTime, QTimer, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QFrame, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
+from models.finance_model import FinanceModel
 from shared.app_assets import get_company_logo_path, get_scaled_company_logo
 
 
@@ -53,7 +54,11 @@ class DashboardPage(QWidget):
 
         self._setup_ui()
         self._refresh_summary_cards()
+        self._refresh_finance_badge()
         self._update_datetime()
+
+        self._listener = self._on_finance_changed
+        FinanceModel.register_listener(self._listener)
 
         self.clock_timer = QTimer(self)
         self.clock_timer.timeout.connect(self._update_datetime)
@@ -136,8 +141,11 @@ class DashboardPage(QWidget):
         self.date_label.setStyleSheet("font-size: 12px; color: #cbd5e1;")
         self.time_label = QLabel("Saat: -")
         self.time_label.setStyleSheet("font-size: 12px; color: #cbd5e1;")
+        self.finance_balance_label = QLabel("Müşteri Bakiye: BAKİYE YOK")
+        self.finance_balance_label.setStyleSheet("font-size: 12px; color: #94a3b8; font-weight: 700;")
 
         footer_layout.addWidget(self.version_label)
+        footer_layout.addWidget(self.finance_balance_label)
         footer_layout.addStretch()
         footer_layout.addWidget(self.date_label)
         footer_layout.addWidget(self.time_label)
@@ -191,6 +199,24 @@ class DashboardPage(QWidget):
         self.total_suppliers_card.set_value(str(totals["suppliers"]))
         self.total_products_card.set_value(str(totals["products"]))
         self.total_inventory_value_card.set_value(f"{totals['inventory_value']:,.2f} USD")
+
+    def _refresh_finance_badge(self) -> None:
+        summary = FinanceModel.cash_flow_summary()
+        receivables = float(summary.get("receivables") or 0)
+        payables = float(summary.get("payables") or 0)
+        net = receivables - payables
+        if net > 0:
+            self.finance_balance_label.setText(f"Müşteri Bakiye: {net:,.2f} (ALACAKLIYIZ)")
+            self.finance_balance_label.setStyleSheet("font-size: 12px; color: #16a34a; font-weight: 700;")
+        elif net < 0:
+            self.finance_balance_label.setText(f"Müşteri Bakiye: {abs(net):,.2f} (BORÇLUYUZ)")
+            self.finance_balance_label.setStyleSheet("font-size: 12px; color: #dc2626; font-weight: 700;")
+        else:
+            self.finance_balance_label.setText("Müşteri Bakiye: BAKİYE YOK")
+            self.finance_balance_label.setStyleSheet("font-size: 12px; color: #94a3b8; font-weight: 700;")
+
+    def _on_finance_changed(self, _event: str) -> None:
+        self._refresh_finance_badge()
 
     def _update_datetime(self) -> None:
         self.date_label.setText(f"Tarih: {QDate.currentDate().toString('yyyy-MM-dd')}")
@@ -272,3 +298,7 @@ class DashboardPage(QWidget):
         while x < self.width():
             painter.drawLine(x, self.height(), x + self.height(), 0)
             x += step
+
+    def closeEvent(self, event):  # noqa: N802
+        FinanceModel.unregister_listener(self._listener)
+        super().closeEvent(event)

@@ -65,6 +65,10 @@ class ProformaPage(BaseDocumentPage):
         self.action_edit.triggered.connect(self._edit_selected)
         self.toolbar.addAction(self.action_edit)
 
+        self.action_delete = QAction("🗑 Sil", self)
+        self.action_delete.triggered.connect(self._delete_selected)
+        self.toolbar.addAction(self.action_delete)
+
         self.action_cancel = QAction("🛑 İptal", self)
         self.action_cancel.triggered.connect(self._cancel_selected)
         self.toolbar.addAction(self.action_cancel)
@@ -252,19 +256,38 @@ class ProformaPage(BaseDocumentPage):
         except Exception as exc:
             QMessageBox.critical(self, "Hata", f"Proforma iptal işlemi başarısız oldu:\n{exc}")
 
+    def _delete_selected(self):
+        invoice_no = self._selected_invoice_no()
+        if not invoice_no:
+            return
+        answer = QMessageBox.question(self, "Sil", "Bu kayıt silinsin mi?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            ProformaModel.delete_invoice(invoice_no)
+            self.load_invoices(self.search_input.text())
+        except Exception as exc:
+            QMessageBox.warning(self, "Uyarı", str(exc))
+
     def _show_context_menu(self, pos):
         row = self.table.rowAt(pos.y())
         if row >= 0:
             self.table.selectRow(row)
 
         menu = QMenu(self)
+        open_action = QAction("Open", self)
         edit_action = QAction("Düzenle", self)
+        delete_action = QAction("Delete", self)
         edit_action.triggered.connect(self._edit_selected)
+        open_action.triggered.connect(self._edit_selected)
+        delete_action.triggered.connect(self._delete_selected)
         cancel_action = QAction("İptal", self)
         cancel_action.triggered.connect(self._cancel_selected)
         packing_action = QAction("Çeki Listesi Oluştur", self)
         packing_action.triggered.connect(self._create_packing_list_from_selected)
+        menu.addAction(open_action)
         menu.addAction(edit_action)
+        menu.addAction(delete_action)
         menu.addAction(cancel_action)
         menu.addSeparator()
         menu.addAction(packing_action)

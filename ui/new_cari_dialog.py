@@ -10,9 +10,10 @@ from PySide6.QtWidgets import (
 )
 
 from models.cari_model import CariModel
+from ui.base_document_dialog import BaseDocumentDialog
 
 
-class NewCariDialog(QDialog):
+class NewCariDialog(BaseDocumentDialog):
     def __init__(self, cari_kodu=None, parent=None, focus_field: str = ""):
         super().__init__(parent)
 
@@ -37,12 +38,6 @@ class NewCariDialog(QDialog):
         self.txt_ilce = QLineEdit()
         self.txt_adres = QTextEdit()
         self.txt_adres.setMinimumHeight(120)
-
-        self.btn_kaydet = QPushButton("💾 Güncelle" if self.is_edit_mode else "💾 Kaydet")
-        self.btn_iptal = QPushButton("İptal")
-
-        self.btn_kaydet.clicked.connect(self._on_save)
-        self.btn_iptal.clicked.connect(self.reject)
 
         grid = QGridLayout()
         grid.setContentsMargins(20, 20, 20, 20)
@@ -71,14 +66,16 @@ class NewCariDialog(QDialog):
         grid.addWidget(QLabel("Adres"), len(fields), 0)
         grid.addWidget(self.txt_adres, len(fields), 1, 1, 1)
 
-        button_layout = QVBoxLayout()
-        button_layout.addStretch()
-        button_layout.addWidget(self.btn_kaydet)
-        button_layout.addWidget(self.btn_iptal)
-
         main_layout = QVBoxLayout(self)
         main_layout.addLayout(grid)
-        main_layout.addLayout(button_layout)
+
+        self.action_bar = self.create_standard_action_bar(include_save_close=True)
+        self.preview_btn.setEnabled(False)
+        self.save_btn.clicked.connect(self._on_save)
+        self.save_btn.setDefault(True)
+        self.save_close_btn.clicked.connect(self._on_save)
+        self.cancel_btn.clicked.connect(self.reject)
+        main_layout.addWidget(self.action_bar)
 
         if self.is_edit_mode:
             self._load_customer_data()

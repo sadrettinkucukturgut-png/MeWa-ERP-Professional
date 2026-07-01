@@ -18,17 +18,20 @@ from PySide6.QtWidgets import (
 )
 
 from core.tab_manager import TabManager
-from shared.app_assets import get_company_logo_icon, get_scaled_company_logo
+from shared.app_assets import get_company_logo_icon
 from ui.cari_hareketleri_dialog import CariHareketleriDialog
 from ui.cari_list_page import CariListPage
 from ui.dashboard_page import DashboardPage
 from ui.cash_page import CashPage
 from ui.banks_page import BanksPage
+from ui.cash_definitions_page import CashDefinitionsPage
+from ui.bank_definitions_page import BankDefinitionsPage
 from ui.bank_transactions_page import BankTransactionsPage
 from ui.customer_collections_page import CustomerCollectionsPage
 from ui.supplier_payments_page import SupplierPaymentsPage
 from ui.customer_statement_page import CustomerStatementPage
 from ui.cash_flow_page import CashFlowPage
+from ui.company_profile_page import CompanyProfilePage
 from ui.currency_position_page import CurrencyPositionPage
 from ui.finance_reports_page import FinanceReportsPage
 from ui.goods_receipt_page import GoodsReceiptPage
@@ -212,6 +215,7 @@ class MainWindow(QMainWindow):
         self._suppress_sidebar_state_save = False
         self._sidebar_settings_page = None
         self._preferences_page = None
+        self._company_profile_page = None
 
         self._header_height = 34
         self._group_height = 36
@@ -308,17 +312,6 @@ class MainWindow(QMainWindow):
         content_layout.setSpacing(0)
         content_layout.addWidget(self.tabs, 1)
 
-        watermark_row = QHBoxLayout()
-        watermark_row.setContentsMargins(0, 0, 0, 0)
-        watermark_row.addStretch()
-
-        self.logo_watermark = QLabel()
-        self.logo_watermark.setObjectName("logoWatermark")
-        self.logo_watermark.setStyleSheet("padding: 4px; background: transparent;")
-        watermark_row.addWidget(self.logo_watermark, alignment=Qt.AlignRight | Qt.AlignBottom)
-        content_layout.addLayout(watermark_row)
-        self._update_logo_watermark()
-
         self.main_splitter = QSplitter(Qt.Horizontal)
         self.main_splitter.setChildrenCollapsible(False)
         self.main_splitter.addWidget(self.left_panel)
@@ -391,15 +384,11 @@ class MainWindow(QMainWindow):
                 "icon": "🏦",
                 "title": "Finans",
                 "items": [
-                    {"id": "cash", "label": "💵 Cash", "callback": self.open_cash},
-                    {"id": "banks", "label": "🏦 Banks", "callback": self.open_banks},
-                    {"id": "bank_tx", "label": "📒 Bank Transactions", "callback": self.open_bank_transactions},
-                    {"id": "collections", "label": "💳 Customer Collections", "callback": self.open_customer_collections},
-                    {"id": "supplier_payments", "label": "💸 Supplier Payments", "callback": self.open_supplier_payments},
-                    {"id": "customer_statement", "label": "📄 Customer Statement", "callback": self.open_customer_statement},
-                    {"id": "cash_flow", "label": "📊 Cash Flow", "callback": self.open_cash_flow},
-                    {"id": "currency_position", "label": "💱 Currency Position", "callback": self.open_currency_position},
-                    {"id": "reports", "label": "📈 Finance Reports", "callback": self.open_finance_reports},
+                    {"id": "cash", "label": "💵 Kasa", "callback": self.open_cash},
+                    {"id": "banks", "label": "🏦 Banka Kayıtları", "callback": self.open_banks},
+                    {"id": "cash_definitions", "label": "💼 Kasa Tanımları", "callback": self.open_cash_definitions},
+                    {"id": "bank_definitions", "label": "🏛 Banka Tanımları", "callback": self.open_bank_definitions},
+                    {"id": "reports", "label": "📈 Finans Raporları", "callback": self.open_finance_reports},
                 ],
             },
             {
@@ -416,7 +405,7 @@ class MainWindow(QMainWindow):
                 "icon": "⚙",
                 "title": "Ayarlar",
                 "items": [
-                    {"id": "company", "label": "🏢 Firma Bilgileri", "callback": self.open_company_settings},
+                    {"id": "company_profile", "label": "🏢 Company Profile", "callback": self.open_company_settings},
                     {"id": "users", "label": "👤 Kullanicilar", "callback": self.open_users},
                     {"id": "authorization", "label": "🛡 Yetkilendirme", "callback": self.open_authorization},
                     {"id": "currency", "label": "💱 Doviz Kurlari", "callback": self.open_currency_rates},
@@ -1202,15 +1191,8 @@ class MainWindow(QMainWindow):
             self.sidebar_expanded_width = clamped
             self._save_sidebar_layout_state()
 
-    def _update_logo_watermark(self):
-        width = max(120, min(self.width() // 7, 220))
-        height = max(40, min(self.height() // 12, 90))
-        pixmap = get_scaled_company_logo(width, height)
-        self.logo_watermark.setPixmap(pixmap)
-
     def resizeEvent(self, event):  # noqa: N802
         super().resizeEvent(event)
-        self._update_logo_watermark()
 
     def open_dashboard(self):
         self.tabs.open_tab(self.dashboard, "🏠 Panel")
@@ -1284,10 +1266,16 @@ class MainWindow(QMainWindow):
         self.tabs.open_tab(page, "📊 İhracat Satış Raporları")
 
     def open_cash(self):
-        self.tabs.open_tab(CashPage(), "💵 Cash")
+        self.tabs.open_tab(CashPage(), "💵 Kasa")
 
     def open_banks(self):
-        self.tabs.open_tab(BanksPage(), "🏦 Banks")
+        self.tabs.open_tab(BanksPage(), "🏦 Banka Kayıtları")
+
+    def open_cash_definitions(self):
+        self.tabs.open_tab(CashDefinitionsPage(), "💼 Kasa Tanımları")
+
+    def open_bank_definitions(self):
+        self.tabs.open_tab(BankDefinitionsPage(), "🏛 Banka Tanımları")
 
     def open_bank_transactions(self):
         self.tabs.open_tab(BankTransactionsPage(), "📒 Bank Transactions")
@@ -1308,7 +1296,7 @@ class MainWindow(QMainWindow):
         self.tabs.open_tab(CurrencyPositionPage(), "💱 Currency Position")
 
     def open_finance_reports(self):
-        self.tabs.open_tab(FinanceReportsPage(), "📈 Finance Reports")
+        self.tabs.open_tab(FinanceReportsPage(), "📈 Finans Raporları")
 
     def open_reports(self):
         self.tabs.open_tab(PlaceholderPage("Genel Raporlar"), "📊 Genel Raporlar")
@@ -1335,7 +1323,9 @@ class MainWindow(QMainWindow):
         self.tabs.open_tab(self._sidebar_settings_page, "🧭 Sidebar Ayarlari")
 
     def open_company_settings(self):
-        self.tabs.open_tab(PlaceholderPage("Firma Bilgileri"), "🏢 Firma Bilgileri")
+        if self._company_profile_page is None:
+            self._company_profile_page = CompanyProfilePage()
+        self.tabs.open_tab(self._company_profile_page, "🏢 Company Profile")
 
     def open_users(self):
         self.tabs.open_tab(PlaceholderPage("Kullanicilar"), "👤 Kullanicilar")

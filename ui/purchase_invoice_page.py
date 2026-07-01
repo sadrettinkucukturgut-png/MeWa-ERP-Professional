@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from models.purchase_invoice_model import PurchaseInvoiceModel
+from shared.app_assets import get_company_logo_path
 from shared.widgets.document_toolbar import DocumentToolbar
 from shared.widgets.table_column_state import apply_table_column_standard
 from shared.widgets.table_visual import apply_list_table_visuals, create_record_count_label, set_record_count
@@ -65,6 +66,10 @@ class PurchaseInvoicePage(QWidget):
         self.action_edit = QAction("✏️ Düzenle", self)
         self.action_edit.triggered.connect(self._edit_selected)
         self.toolbar.addAction(self.action_edit)
+
+        self.action_delete = QAction("🗑 Sil", self)
+        self.action_delete.triggered.connect(self._delete_selected)
+        self.toolbar.addAction(self.action_delete)
 
         self.action_cancel = QAction("🛑 İptal", self)
         self.action_cancel.triggered.connect(self._cancel_selected)
@@ -248,6 +253,19 @@ class PurchaseInvoicePage(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Hata", f"İptal işlemi başarısız oldu:\n{exc}")
 
+    def _delete_selected(self):
+        invoice_no = self._selected_invoice_no()
+        if not invoice_no:
+            return
+        answer = QMessageBox.question(self, "Sil", "Bu kayıt silinsin mi?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            PurchaseInvoiceModel.delete_invoice(invoice_no)
+            self.load_invoices(self.search_input.text())
+        except Exception as exc:
+            QMessageBox.warning(self, "Uyarı", str(exc))
+
     def _show_column_menu(self):
         menu = QMenu(self)
         for index, label in enumerate(self.column_labels):
@@ -264,11 +282,17 @@ class PurchaseInvoicePage(QWidget):
             self.table.selectRow(row)
 
         menu = QMenu(self)
+        open_action = QAction("Open", self)
         edit_action = QAction("Düzenle", self)
+        delete_action = QAction("Delete", self)
         edit_action.triggered.connect(self._edit_selected)
+        open_action.triggered.connect(self._edit_selected)
+        delete_action.triggered.connect(self._delete_selected)
         cancel_action = QAction("İptal", self)
         cancel_action.triggered.connect(self._cancel_selected)
+        menu.addAction(open_action)
         menu.addAction(edit_action)
+        menu.addAction(delete_action)
         menu.addAction(cancel_action)
         menu.exec_(self.table.viewport().mapToGlobal(pos))
 
@@ -364,10 +388,7 @@ class PurchaseInvoicePage(QWidget):
         PrintService.print_report(self, headers, rows, "Alış Fatura Listesi")
 
     def _resolve_logo_path(self) -> Path:
-        project_root = Path(__file__).resolve().parent.parent
-        official = project_root / "assets" / "logos" / "mewa_logo.png"
-        fallback = project_root / "assets" / "logo.png"
-        return official if official.exists() else fallback
+        return get_company_logo_path()
 
     @staticmethod
     def _status_text(status: str) -> str:

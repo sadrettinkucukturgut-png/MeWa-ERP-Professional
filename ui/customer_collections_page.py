@@ -4,28 +4,28 @@ from PySide6.QtWidgets import QMessageBox
 
 from models.finance_model import FinanceModel
 from ui.finance_base_page import FinanceBasePage
-from ui.finance_dialogs import CollectionDialog
+from ui.finance_dialogs import CollectionDialog, ExchangeRateDialog
 
 
 class CustomerCollectionsPage(FinanceBasePage):
     def __init__(self):
         super().__init__(
-            title="💳 Customer Collections",
+            title="💳 Müşteri Tahsilatları",
             layout_key="finance_customer_collections_table",
             column_labels=[
                 "ID",
-                "Date",
-                "Collection No",
-                "Customer",
-                "Invoice",
-                "Amount",
-                "Currency",
-                "Payment Method",
-                "Reference",
-                "Bank/Cash",
-                "Notes",
+                "Tarih",
+                "Tahsilat No",
+                "Müşteri",
+                "Fatura",
+                "Tutar",
+                "Para Birimi",
+                "Ödeme Yöntemi",
+                "Referans",
+                "Banka/Kasa",
+                "Notlar",
             ],
-            stat_titles=["Today's Collections", "Total Collections", "Receivables", "Records"],
+            stat_titles=["Bugünkü Tahsilat", "Toplam Tahsilat", "Alacaklar", "Kayıt"],
         )
         self.load_data()
 
@@ -40,6 +40,8 @@ class CustomerCollectionsPage(FinanceBasePage):
             total += amount
             if str(row.get("collection_date") or "") == today:
                 today_total += amount
+            method = str(row.get("payment_method") or "")
+            method_text = "Banka" if method == "BANK" else "Kasa" if method == "CASH" else method
             table_rows.append(
                 [
                     str(row.get("id") or ""),
@@ -49,7 +51,7 @@ class CustomerCollectionsPage(FinanceBasePage):
                     str(row.get("invoice_number") or ""),
                     f"{amount:,.2f}",
                     str(row.get("currency") or "USD"),
-                    str(row.get("payment_method") or ""),
+                    method_text,
                     str(row.get("reference_no") or ""),
                     str(row.get("bank_or_cash") or ""),
                     str(row.get("notes") or ""),
@@ -60,10 +62,10 @@ class CustomerCollectionsPage(FinanceBasePage):
         self.set_table_rows(table_rows)
         self.set_stats(
             {
-                "Today's Collections": f"{today_total:,.2f}",
-                "Total Collections": f"{total:,.2f}",
-                "Receivables": f"{float(summary.get('receivables') or 0):,.2f}",
-                "Records": str(len(rows)),
+                "Bugünkü Tahsilat": f"{today_total:,.2f}",
+                "Toplam Tahsilat": f"{total:,.2f}",
+                "Alacaklar": f"{float(summary.get('receivables') or 0):,.2f}",
+                "Kayıt": str(len(rows)),
             }
         )
 
@@ -88,24 +90,37 @@ class CustomerCollectionsPage(FinanceBasePage):
         )
         if not dlg.exec():
             return
+        payload = dlg.payload()
+        customer_id = int(payload.get("customer_id") or 0)
+        voucher_currency = str(payload.get("currency") or "USD").strip().upper() or "USD"
+        account_currency = FinanceModel.customer_account_currency(customer_id)
+        exchange_rate = 1.0
+        if voucher_currency != account_currency:
+            exchange_rate = ExchangeRateDialog.ask_rate(
+                parent=self,
+                account_currency=account_currency,
+                voucher_currency=voucher_currency,
+            )
+            if exchange_rate is None:
+                return
         try:
-            FinanceModel.create_customer_collection(**dlg.payload())
+            FinanceModel.create_customer_collection(**payload, exchange_rate=exchange_rate)
             self.load_data(self.search_input.text())
         except Exception as exc:
-            QMessageBox.critical(self, "Error", str(exc))
+            QMessageBox.critical(self, "Hata", str(exc))
 
     def _on_edit(self):
-        QMessageBox.information(self, "Info", "Collections are immutable after posting. Use delete and recreate.")
+        QMessageBox.information(self, "Bilgi", "Tahsilatlar kayıt sonrası değiştirilemez. Silip yeniden oluşturun.")
 
     def _on_delete(self):
         selected_id = self._selected_id()
         if selected_id <= 0:
             return
-        answer = QMessageBox.question(self, "Delete", "Delete selected collection? This will rollback balances.")
+        answer = QMessageBox.question(self, "Sil", "Seçili tahsilat silinsin mi? Bu işlem bakiyeleri geri alacaktır.")
         if answer != QMessageBox.Yes:
             return
         try:
             FinanceModel.delete_customer_collection(selected_id)
             self.load_data(self.search_input.text())
         except Exception as exc:
-            QMessageBox.critical(self, "Error", str(exc))
+            QMessageBox.critical(self, "Hata", str(exc))

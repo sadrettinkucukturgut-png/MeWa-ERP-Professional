@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.crud_base import BaseCrud
+from models.finance_model import FinanceModel
 
 
 class PurchaseOrderModel(BaseCrud):
@@ -310,6 +311,42 @@ class PurchaseOrderModel(BaseCrud):
                 ("Cancelled", cls._now(), order_number),
             )
             conn.commit()
+
+    @classmethod
+    def delete_order(cls, order_number: str, *, is_admin: bool = False) -> None:
+        number = str(order_number or "").strip()
+        if not number:
+            raise ValueError("Sipariş numarası gereklidir.")
+
+        with cls()._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"SELECT id, COALESCE(status, 'Draft') FROM {cls.table_name} WHERE order_number = ?",
+                (number,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise ValueError("Satın alma siparişi bulunamadı.")
+
+            order_id = int(row[0])
+            status = str(row[1] or "Draft").strip().lower()
+            if status not in {"draft", "cancelled"} and not is_admin:
+                raise ValueError("İşlenmiş belge doğrudan silinemez. Önce iptal edin.")
+
+            cursor.execute("SELECT 1 FROM goods_receipts WHERE purchase_order_id = ? LIMIT 1", (order_id,))
+            if cursor.fetchone() is not None:
+                raise ValueError("Bu siparişe bağlı mal kabul kaydı var. Önce ilgili kayıtları silin.")
+
+            cursor.execute("BEGIN TRANSACTION")
+            try:
+                cursor.execute("DELETE FROM purchase_order_items WHERE order_id = ?", (order_id,))
+                cursor.execute(f"DELETE FROM {cls.table_name} WHERE id = ?", (order_id,))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        FinanceModel.notify_change("purchase-order")
 
     @classmethod
     def ekle(

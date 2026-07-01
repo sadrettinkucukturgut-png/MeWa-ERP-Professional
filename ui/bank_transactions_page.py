@@ -7,22 +7,22 @@ from ui.finance_base_page import FinanceBasePage
 class BankTransactionsPage(FinanceBasePage):
     def __init__(self):
         super().__init__(
-            title="📒 Bank Transactions",
+            title="📒 Banka Hareketleri",
             layout_key="finance_bank_transactions_table",
             column_labels=[
-                "Date",
-                "Transaction No",
-                "Account",
-                "Description",
-                "Currency",
-                "Debit",
-                "Credit",
-                "Balance",
-                "Reference",
-                "Document",
-                "Running Balance",
+                "Tarih",
+                "İşlem No",
+                "Hesap",
+                "Açıklama",
+                "Para Birimi",
+                "Borç",
+                "Alacak",
+                "Bakiye",
+                "Referans",
+                "Belge",
+                "Kümülatif Bakiye",
             ],
-            stat_titles=["Total Debit", "Total Credit", "Net Movement", "Records"],
+            stat_titles=["Toplam Borç", "Toplam Alacak", "Net Hareket", "Kayıt"],
         )
         self.action_new.setEnabled(False)
         self.action_edit.setEnabled(False)
@@ -59,9 +59,9 @@ class BankTransactionsPage(FinanceBasePage):
         self.set_table_rows(table_rows)
         self.set_stats(
             {
-                "Total Debit": f"{total_debit:,.2f}",
-                "Total Credit": f"{total_credit:,.2f}",
-                "Net Movement": f"{(total_debit - total_credit):,.2f}",
-                "Records": str(len(rows)),
+                "Toplam Borç": f"{total_debit:,.2f}",
+                "Toplam Alacak": f"{total_credit:,.2f}",
+                "Net Hareket": f"{(total_debit - total_credit):,.2f}",
+                "Kayıt": str(len(rows)),
             }
         )

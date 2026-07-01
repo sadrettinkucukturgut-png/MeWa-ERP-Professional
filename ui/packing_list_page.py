@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from models.company_profile_model import CompanyProfileModel
 from models.packing_list_model import PackingListModel
 from services.document_preview_engine import (
     DocumentLineItem,
@@ -402,7 +403,7 @@ class PackingListPage(QWidget):
                 return
             self.load_packing_lists(self.search_input.text())
         except Exception as exc:
-            QMessageBox.critical(self, "Error", f"Delete failed:\n{exc}")
+            QMessageBox.warning(self, "Warning", str(exc))
 
     def _preview_selected(self):
         detail = self._selected_detail()
@@ -475,13 +476,15 @@ class PackingListPage(QWidget):
                 return ""
             return tmp.name
 
+        profile = CompanyProfileModel.get_document_profile()
+        company_name = str(profile.get("company_name") or "").strip() or "Company"
         message = (
             "Hello,\n\n"
             "Please find attached your Packing List.\n\n"
             "Packing List No:\n"
             f"{template.invoice_number}\n\n"
             "Best Regards\n\n"
-            "MeWa Automotive Ltd.Şti."
+            f"{company_name}"
         )
         WhatsAppService.send_document(
             parent=self,
@@ -513,7 +516,11 @@ class PackingListPage(QWidget):
             QMessageBox.warning(self, "Warning", f"Could not open mail client. PDF ready:\n{tmp.name}")
 
     def _website_selected(self):
-        opened = QDesktopServices.openUrl(QUrl("https://mewaautomotive.com"))
+        profile = CompanyProfileModel.get_document_profile()
+        website = str(profile.get("website") or "").strip()
+        if website and not website.lower().startswith(("http://", "https://")):
+            website = f"https://{website}"
+        opened = QDesktopServices.openUrl(QUrl(website or "https://example.com"))
         if not opened:
             QMessageBox.warning(self, "Warning", "Website could not be opened.")
 

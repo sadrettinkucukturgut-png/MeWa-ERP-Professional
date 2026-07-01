@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.crud_base import BaseCrud
+from models.finance_model import FinanceModel
+from services.accounting_posting_service import AccountingPostingService
 
 
 class ExportSalesInvoiceModel(BaseCrud):
@@ -559,35 +561,19 @@ class ExportSalesInvoiceModel(BaseCrud):
             customer_code = str(customer[0] or "")
             customer_name = str(customer[1] or "")
 
-            cursor.execute(
-                """
-                INSERT INTO customer_account_movements(
-                    customer_id,
-                    movement_date,
-                    movement_type,
-                    reference_type,
-                    reference_no,
-                    amount,
-                    currency,
-                    exchange_rate,
-                    description,
-                    status,
-                    created_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    customer_id,
-                    invoice_date,
-                    "Credit",
-                    "SalesInvoice",
-                    invoice_number,
-                    grand_total,
-                    currency or "USD",
-                    exchange_rate,
-                    f"Invoice No: {invoice_number}",
-                    "Posted",
-                    now_value,
-                ),
+            AccountingPostingService.post_customer_ledger(
+                conn=conn,
+                customer_id=int(customer_id),
+                movement_date=invoice_date,
+                document_type="Yurtdışı Satış Faturası",
+                reference_type="SalesInvoice",
+                reference_no=invoice_number,
+                debit=0.0,
+                credit=float(grand_total),
+                currency=str(currency or "USD"),
+                exchange_rate=float(exchange_rate or 1.0),
+                description=f"Yurtdışı Satış Faturası {invoice_number}",
+                status="Posted",
             )
 
             # Bridge write for existing customer ledger screen that reads supplier_account_movements.
@@ -616,19 +602,21 @@ class ExportSalesInvoiceModel(BaseCrud):
                 (
                     bridge_supplier_id,
                     invoice_date,
-                    "Credit",
+                    "Invoice",
                     "SalesInvoice",
                     invoice_number,
                     grand_total,
                     currency or "USD",
                     exchange_rate,
-                    f"Invoice No: {invoice_number}",
+                    f"Yurtdışı Satış Faturası {invoice_number}",
                     "Posted",
                     now_value,
                 ),
             )
 
             conn.commit()
+
+        FinanceModel.notify_change("invoice")
 
         return invoice_id
 
@@ -688,3 +676,54 @@ class ExportSalesInvoiceModel(BaseCrud):
                 ("SalesInvoice", invoice_number),
             )
             conn.commit()
+
+        FinanceModel.notify_change("invoice")
+
+    @classmethod
+    def delete_invoice(cls, invoice_number: str, *, is_admin: bool = False) -> None:
+        number = str(invoice_number or "").strip()
+        if not number:
+            raise ValueError("Fatura numarası gereklidir.")
+
+        with cls()._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, COALESCE(status, 'Draft') FROM sales_invoices WHERE invoice_number = ?",
+                (number,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise ValueError("Fatura bulunamadı.")
+            invoice_id = int(row[0])
+            status = str(row[1] or "Draft").strip().lower()
+
+            if status not in {"draft", "cancelled"} and not is_admin:
+                raise ValueError("İşlenmiş belge doğrudan silinemez. Önce iptal edin.")
+
+            cursor.execute("BEGIN TRANSACTION")
+            try:
+                cursor.execute(
+                    "SELECT stock_id, COALESCE(quantity, 0) FROM sales_invoice_items WHERE invoice_id = ?",
+                    (invoice_id,),
+                )
+                for stock_id, qty in cursor.fetchall():
+                    sid = int(stock_id or 0)
+                    amount = float(qty or 0)
+                    if sid > 0 and amount > 0:
+                        cursor.execute(
+                            "UPDATE stoklar SET current_stock = COALESCE(current_stock, 0) + ? WHERE id = ?",
+                            (amount, sid),
+                        )
+
+                cursor.execute("DELETE FROM stock_movements WHERE reference_type = ? AND reference_no = ?", ("SalesInvoice", number))
+                cursor.execute("DELETE FROM customer_account_movements WHERE reference_type = ? AND reference_no = ?", ("SalesInvoice", number))
+                cursor.execute("DELETE FROM supplier_account_movements WHERE reference_type = ? AND reference_no = ?", ("SalesInvoice", number))
+                cursor.execute("DELETE FROM finance_transactions WHERE document_no = ? OR reference_no = ?", (number, number))
+                cursor.execute("DELETE FROM sales_invoice_items WHERE invoice_id = ?", (invoice_id,))
+                cursor.execute("DELETE FROM sales_invoices WHERE id = ?", (invoice_id,))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        FinanceModel.notify_change("invoice")

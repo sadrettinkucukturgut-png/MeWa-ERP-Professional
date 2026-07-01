@@ -52,7 +52,7 @@ class FinanceBasePage(QWidget):
         root.addWidget(title)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search")
+        self.search_input.setPlaceholderText("Ara")
         self.search_input.textChanged.connect(self._on_search_changed)
         root.addWidget(self.search_input)
 
@@ -60,16 +60,16 @@ class FinanceBasePage(QWidget):
         self.toolbar.setMovable(False)
         root.addWidget(self.toolbar)
 
-        self.action_new = QAction("New", self)
-        self.action_edit = QAction("Edit", self)
-        self.action_delete = QAction("Delete", self)
-        self.action_refresh = QAction("Refresh", self)
-        self.action_search = QAction("Search", self)
-        self.action_print = QAction("Print", self)
-        self.action_pdf = QAction("Save PDF", self)
-        self.action_excel = QAction("Export Excel", self)
-        self.action_share = QAction("Share", self)
-        self.action_columns = QAction("Column Visibility", self)
+        self.action_new = QAction("Yeni", self)
+        self.action_edit = QAction("Düzenle", self)
+        self.action_delete = QAction("Sil", self)
+        self.action_refresh = QAction("Yenile", self)
+        self.action_search = QAction("Ara", self)
+        self.action_print = QAction("Yazdır", self)
+        self.action_pdf = QAction("PDF Kaydet", self)
+        self.action_excel = QAction("Excel Aktar", self)
+        self.action_share = QAction("Paylaş", self)
+        self.action_columns = QAction("Sütun Görünürlüğü", self)
 
         for action in [
             self.action_new,
@@ -240,22 +240,35 @@ class FinanceBasePage(QWidget):
         if row >= 0:
             self.table.selectRow(row)
         menu = QMenu(self)
-        edit_action = QAction("Edit", self)
-        delete_action = QAction("Delete", self)
+        open_action = QAction("Open", self)
+        edit_action = QAction("Düzenle", self)
+        delete_action = QAction("Sil", self)
+        duplicate_action = QAction("Duplicate", self)
+        print_action = QAction("Print", self)
+        duplicate_action.setEnabled(False)
+        print_action.setEnabled(False)
+        open_action.triggered.connect(self._on_open)
         edit_action.triggered.connect(self._on_edit)
         delete_action.triggered.connect(self._on_delete)
+        menu.addAction(open_action)
         menu.addAction(edit_action)
         menu.addAction(delete_action)
+        menu.addSeparator()
+        menu.addAction(duplicate_action)
+        menu.addAction(print_action)
         menu.exec_(self.table.viewport().mapToGlobal(pos))
 
+    def _on_open(self):
+        self._on_edit()
+
     def _on_new(self):
-        QMessageBox.information(self, "Info", "Not implemented.")
+        QMessageBox.information(self, "Bilgi", "Henüz uygulanmadı.")
 
     def _on_edit(self):
-        QMessageBox.information(self, "Info", "Not implemented.")
+        QMessageBox.information(self, "Bilgi", "Henüz uygulanmadı.")
 
     def _on_delete(self):
-        QMessageBox.information(self, "Info", "Not implemented.")
+        QMessageBox.information(self, "Bilgi", "Henüz uygulanmadı.")
 
     def load_data(self, keyword: str = ""):
         pass

@@ -42,6 +42,7 @@ from services.document_preview_engine import (
 )
 from shared.widgets.cari_lookup_dialog import CariLookupDialog
 from shared.widgets.stock_lookup_dialog import StockLookupDialog
+from ui.base_document_dialog import BaseDocumentDialog
 
 
 class PurchaseInvoiceItemDelegate(QStyledItemDelegate):
@@ -72,7 +73,7 @@ class PurchaseInvoiceGrid(QTableWidget):
         super().keyPressEvent(event)
 
 
-class NewPurchaseInvoiceDialog(QDialog):
+class NewPurchaseInvoiceDialog(BaseDocumentDialog):
     COL_ROW_NO = 0
     COL_STOCK_CODE = 1
     COL_PRODUCT = 2
@@ -305,22 +306,13 @@ class NewPurchaseInvoiceDialog(QDialog):
         totals_layout.addWidget(self.grand_total_value, 3, 1)
         content_layout.addWidget(totals_frame)
 
-        button_row = QHBoxLayout()
-        button_row.addStretch()
-        self.preview_btn = QPushButton("Önizleme")
+        self.action_bar = self.create_standard_action_bar(include_save_close=True)
         self.preview_btn.clicked.connect(self._on_preview)
-        self.save_btn = QPushButton("Kaydet")
         self.save_btn.setDefault(True)
         self.save_btn.clicked.connect(self._on_save)
-        self.save_close_btn = QPushButton("Kaydet ve Kapat")
         self.save_close_btn.clicked.connect(self._on_save_and_close)
-        self.cancel_btn = QPushButton("İptal")
         self.cancel_btn.clicked.connect(self.reject)
-        button_row.addWidget(self.preview_btn)
-        button_row.addWidget(self.save_btn)
-        button_row.addWidget(self.save_close_btn)
-        button_row.addWidget(self.cancel_btn)
-        content_layout.addLayout(button_row)
+        content_layout.addWidget(self.action_bar)
 
         self.scroll_area.setWidget(content)
         root.addWidget(self.scroll_area)
@@ -333,8 +325,6 @@ class NewPurchaseInvoiceDialog(QDialog):
             "border:1px solid #f97316;"
             "background:#111827;"
             "}"
-            "QPushButton{background:#1e293b; color:#f8fafc; border:1px solid #334155; border-radius:8px; padding:8px 12px;}"
-            "QPushButton:hover{background:#334155;}"
             "QTableWidget{background:#111827; alternate-background-color:#0f172a; color:#e5e7eb; border:1px solid #334155;}"
             "QTableWidget::item:selected{background:#7db7ff; color:#ffffff;}"
             "QTableWidget::item:hover{background:#20364f; color:#e5e7eb;}"

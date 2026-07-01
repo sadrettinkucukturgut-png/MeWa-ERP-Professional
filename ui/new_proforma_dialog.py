@@ -28,18 +28,12 @@ class NewProformaDialog(NewExportSalesInvoiceDialog):
         self._refresh_conversion_state()
 
     def _attach_conversion_button_to_row(self) -> None:
-        content = self.scroll_area.widget() if hasattr(self, "scroll_area") else None
-        if content is None or content.layout() is None:
+        if not hasattr(self, "action_bar"):
             return
-        parent_layout = content.layout()
-        for i in range(parent_layout.count()):
-            item = parent_layout.itemAt(i)
-            row_layout = item.layout() if item is not None else None
-            if row_layout is None:
-                continue
-            if row_layout.indexOf(self.preview_btn) >= 0:
-                row_layout.insertWidget(1, self.convert_btn)
-                return
+        bar_layout = self.action_bar.layout()
+        if bar_layout is None:
+            return
+        bar_layout.insertWidget(1, self.convert_btn)
 
     def _validate_before_save(self) -> Optional[str]:
         invoice_number = self.invoice_number_input.text().strip()

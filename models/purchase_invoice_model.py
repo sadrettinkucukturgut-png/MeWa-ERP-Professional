@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.crud_base import BaseCrud
+from models.finance_model import FinanceModel
+from services.accounting_posting_service import AccountingPostingService
 
 
 class PurchaseInvoiceModel(BaseCrud):
@@ -433,6 +435,10 @@ class PurchaseInvoiceModel(BaseCrud):
                     "DELETE FROM supplier_account_movements WHERE reference_type = ? AND reference_no = ?",
                     ("PurchaseInvoice", existing_invoice_number),
                 )
+                cursor.execute(
+                    "DELETE FROM customer_account_movements WHERE reference_type = ? AND reference_no = ?",
+                    ("PurchaseInvoice", existing_invoice_number),
+                )
             else:
                 cursor.execute(
                     """
@@ -633,12 +639,72 @@ class PurchaseInvoiceModel(BaseCrud):
                 ("Cancelled", "PurchaseInvoice", invoice_number),
             )
             cursor.execute(
+                """
+                UPDATE customer_account_movements
+                SET status = ?
+                WHERE reference_type = ? AND reference_no = ?
+                """,
+                ("Cancelled", "PurchaseInvoice", invoice_number),
+            )
+            cursor.execute(
                 "DELETE FROM stock_movements WHERE reference_type = ? AND reference_no = ?",
                 ("PurchaseInvoice", invoice_number),
             )
             conn.commit()
 
         cls._update_goods_receipt_invoice_status(goods_receipt_id)
+
+    @classmethod
+    def delete_invoice(cls, invoice_number: str, *, is_admin: bool = False) -> None:
+        number = str(invoice_number or "").strip()
+        if not number:
+            raise ValueError("Fatura numarası gereklidir.")
+
+        with cls()._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, goods_receipt_id, COALESCE(status, 'Draft') FROM purchase_invoices WHERE invoice_number = ?",
+                (number,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise ValueError("Fatura bulunamadı.")
+
+            invoice_id = int(row[0])
+            goods_receipt_id = int(row[1] or 0)
+            status = str(row[2] or "Draft").strip().lower()
+            if status not in {"draft", "cancelled"} and not is_admin:
+                raise ValueError("İşlenmiş belge doğrudan silinemez. Önce iptal edin.")
+
+            cursor.execute("BEGIN TRANSACTION")
+            try:
+                cursor.execute(
+                    "SELECT stock_id, COALESCE(quantity, 0) FROM purchase_invoice_items WHERE invoice_id = ?",
+                    (invoice_id,),
+                )
+                for stock_id, qty in cursor.fetchall():
+                    sid = int(stock_id or 0)
+                    amount = float(qty or 0)
+                    if sid > 0 and amount > 0:
+                        cursor.execute(
+                            "UPDATE stoklar SET current_stock = COALESCE(current_stock, 0) - ? WHERE id = ?",
+                            (amount, sid),
+                        )
+
+                cursor.execute("DELETE FROM stock_movements WHERE reference_type = ? AND reference_no = ?", ("PurchaseInvoice", number))
+                cursor.execute("DELETE FROM supplier_account_movements WHERE reference_type = ? AND reference_no = ?", ("PurchaseInvoice", number))
+                cursor.execute("DELETE FROM customer_account_movements WHERE reference_type = ? AND reference_no = ?", ("PurchaseInvoice", number))
+                cursor.execute("DELETE FROM finance_transactions WHERE document_no = ? OR reference_no = ?", (number, number))
+                cursor.execute("DELETE FROM purchase_invoice_items WHERE invoice_id = ?", (invoice_id,))
+                cursor.execute("DELETE FROM purchase_invoices WHERE id = ?", (invoice_id,))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        if goods_receipt_id > 0:
+            cls._update_goods_receipt_invoice_status(goods_receipt_id)
+        FinanceModel.notify_change("purchase-invoice")
 
     @classmethod
     def list_cari_movements(cls) -> List[Dict[str, Any]]:
@@ -812,6 +878,7 @@ class PurchaseInvoiceModel(BaseCrud):
 
         for row in rows:
             movement_type = str(row.get("movement_type") or "").strip().lower()
+            reference_type = str(row.get("reference_type") or "").strip().lower()
             amount = float(row.get("amount") or 0)
 
             if movement_type in ("invoice", "debit"):
@@ -828,19 +895,38 @@ class PurchaseInvoiceModel(BaseCrud):
             total_debit += debit
             total_credit += credit
 
-            document_type_map = {
-                "invoice": "Alış Faturası",
-                "payment": "Ödeme",
-                "credit": "Tahsilat",
-                "debit": "Borç Dekontu",
-            }
+            if reference_type == "salesinvoice":
+                document_type = "Yurtdışı Satış Faturası"
+            elif reference_type == "proforma":
+                document_type = "Proforma"
+            elif reference_type == "packinglist":
+                document_type = "Packing List"
+            elif reference_type == "cash_txn":
+                document_type = "Tahsilat" if movement_type == "tahsilat" else "Tediye" if movement_type == "tediye" else "Tahsilat"
+            elif reference_type == "bank_txn":
+                document_type = "Tahsilat" if movement_type == "tahsilat" else "Tediye" if movement_type == "tediye" else "Tahsilat"
+            else:
+                document_type_map = {
+                    "invoice": "Alış Faturası",
+                    "payment": "Ödeme",
+                    "credit": "Tahsilat",
+                    "debit": "Borç Dekontu",
+                    "tahsilat": "Tahsilat",
+                    "tediye": "Tediye",
+                }
+                document_type = document_type_map.get(movement_type, movement_type.title() or "Belge")
+
+            description = str(row.get("description") or "")
+            if not description:
+                reference_no = str(row.get("reference_no") or "")
+                description = f"{document_type} {reference_no}".strip()
 
             normalized_rows.append(
                 {
                     "date": str(row.get("movement_date") or ""),
-                    "document_type": document_type_map.get(movement_type, movement_type.title() or "Belge"),
+                    "document_type": document_type,
                     "document_no": str(row.get("reference_no") or ""),
-                    "description": str(row.get("description") or ""),
+                    "description": description,
                     "debit": debit,
                     "credit": credit,
                     "running_balance": running_balance,

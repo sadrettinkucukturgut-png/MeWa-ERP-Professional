@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from models.base_document_model import BaseDocumentModel
+from models.finance_model import FinanceModel
 
 
 class ProformaModel(BaseDocumentModel):
@@ -442,3 +443,36 @@ class ProformaModel(BaseDocumentModel):
             )
             cls._append_history(cursor, proforma_id, "StatusChanged", "Status changed to Cancelled", "SYSTEM")
             conn.commit()
+
+    @classmethod
+    def delete_invoice(cls, invoice_number: str, *, is_admin: bool = False) -> None:
+        number = str(invoice_number or "").strip()
+        if not number:
+            raise ValueError("Proforma numarası gereklidir.")
+
+        with cls()._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, COALESCE(status, 'Draft') FROM proforma_headers WHERE proforma_number = ?",
+                (number,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise ValueError("Proforma bulunamadı.")
+
+            proforma_id = int(row[0])
+            status = str(row[1] or "Draft").strip().lower()
+            if status not in {"draft", "cancelled"} and not is_admin:
+                raise ValueError("İşlenmiş belge doğrudan silinemez. Önce iptal edin.")
+
+            cursor.execute("BEGIN TRANSACTION")
+            try:
+                cursor.execute("DELETE FROM proforma_lines WHERE proforma_id = ?", (proforma_id,))
+                cursor.execute("DELETE FROM proforma_history WHERE proforma_id = ?", (proforma_id,))
+                cursor.execute("DELETE FROM proforma_headers WHERE id = ?", (proforma_id,))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        FinanceModel.notify_change("proforma")

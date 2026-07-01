@@ -267,6 +267,11 @@ class CariModel:
             else:
                 select_parts.append("'' AS payment_term")
 
+            if has_column("vergi_no"):
+                select_parts.append("COALESCE(vergi_no, '') AS vergi_no")
+            else:
+                select_parts.append("'' AS vergi_no")
+
             if has_column("cari_tipi"):
                 select_parts.append("COALESCE(cari_tipi, '') AS cari_tipi")
             else:
@@ -314,6 +319,8 @@ class CariModel:
                     "telefon": str(row.get("telefon") or "").strip(),
                     "mobile": str(row.get("mobile") or "").strip(),
                     "whatsapp": str(row.get("whatsapp") or "").strip(),
+                    "tax_number": str((row.get("vergi_no") or (supplier.get("tax_number") if supplier else "") or "")).strip(),
+                    "vergi_no": str((row.get("vergi_no") or (supplier.get("tax_number") if supplier else "") or "")).strip(),
                     "city": str(row.get("sehir") or "").strip(),
                     "sehir": str(row.get("sehir") or "").strip(),
                     "country": str(row.get("ulke") or "").strip(),
@@ -360,6 +367,11 @@ class CariModel:
             else:
                 select_parts.append("'' AS payment_term")
 
+            if has_column("vergi_no"):
+                select_parts.append("COALESCE(vergi_no, '') AS vergi_no")
+            else:
+                select_parts.append("'' AS vergi_no")
+
             if has_column("cari_tipi"):
                 select_parts.append("COALESCE(cari_tipi, '') AS cari_tipi")
             else:
@@ -388,6 +400,8 @@ class CariModel:
                     "telefon": str(row.get("telefon") or "").strip(),
                     "mobile": str(row.get("mobile") or "").strip(),
                     "whatsapp": str(row.get("whatsapp") or "").strip(),
+                    "tax_number": str(row.get("vergi_no") or "").strip(),
+                    "vergi_no": str(row.get("vergi_no") or "").strip(),
                     "city": str(row.get("sehir") or "").strip(),
                     "sehir": str(row.get("sehir") or "").strip(),
                     "country": str(row.get("ulke") or "").strip(),

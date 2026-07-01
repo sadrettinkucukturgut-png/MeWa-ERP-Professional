@@ -30,6 +30,16 @@ _TEMPLATE_FILES = {
 
 def get_company_logo_path() -> Path:
     """Return permanent corporate logo path with safe legacy fallback."""
+    try:
+        from models.company_profile_model import CompanyProfileModel
+
+        profile = CompanyProfileModel.get_profile()
+        dynamic_logo = CompanyProfileModel.resolve_path(str(profile.get("logo_path") or ""))
+        if dynamic_logo and dynamic_logo.exists():
+            return dynamic_logo
+    except Exception:
+        pass
+
     preferred = get_branding_asset_path("company_logo")
     if preferred.exists():
         return preferred
@@ -41,7 +51,27 @@ def get_company_logo_path() -> Path:
 
 
 def get_branding_asset_path(asset_key: str) -> Path:
-    filename = _BRANDING_FILES.get(str(asset_key or "").strip().lower(), "")
+    normalized_key = str(asset_key or "").strip().lower()
+    try:
+        from models.company_profile_model import CompanyProfileModel
+
+        profile = CompanyProfileModel.get_profile()
+        if normalized_key == "company_logo":
+            dynamic = CompanyProfileModel.resolve_path(str(profile.get("logo_path") or ""))
+            if dynamic and dynamic.exists():
+                return dynamic
+        elif normalized_key == "company_signature":
+            dynamic = CompanyProfileModel.resolve_path(str(profile.get("signature_path") or ""))
+            if dynamic and dynamic.exists():
+                return dynamic
+        elif normalized_key == "company_stamp":
+            dynamic = CompanyProfileModel.resolve_path(str(profile.get("stamp_path") or ""))
+            if dynamic and dynamic.exists():
+                return dynamic
+    except Exception:
+        pass
+
+    filename = _BRANDING_FILES.get(normalized_key, "")
     if filename:
         return BRANDING_DIR / filename
     return BRANDING_DIR / str(asset_key or "")

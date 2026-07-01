@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.crud_base import BaseCrud
+from models.finance_model import FinanceModel
 
 
 class PackingListModel(BaseCrud):
@@ -475,7 +476,7 @@ class PackingListModel(BaseCrud):
             return header
 
     @classmethod
-    def delete_packing_list(cls, packing_list_number: str) -> bool:
+    def delete_packing_list(cls, packing_list_number: str, *, is_admin: bool = False) -> bool:
         number = str(packing_list_number or "").strip()
         if not number:
             return False
@@ -484,18 +485,26 @@ class PackingListModel(BaseCrud):
             cursor = conn.cursor()
             try:
                 cursor.execute("BEGIN")
-                cursor.execute("SELECT id FROM packing_lists WHERE packing_list_number = ?", (number,))
+                cursor.execute(
+                    "SELECT id, COALESCE(status, 'Draft') FROM packing_lists WHERE packing_list_number = ?",
+                    (number,),
+                )
                 row = cursor.fetchone()
                 if row is None:
                     conn.rollback()
                     return False
                 packing_list_id = int(row[0])
+                status = str(row[1] or "Draft").strip().lower()
+                if status not in {"draft", "cancelled"} and not is_admin:
+                    conn.rollback()
+                    raise ValueError("İşlenmiş belge doğrudan silinemez. Önce iptal edin.")
 
                 cursor.execute("DELETE FROM packing_list_items WHERE packing_list_id = ?", (packing_list_id,))
                 cursor.execute("DELETE FROM packing_list_pallets WHERE packing_list_id = ?", (packing_list_id,))
                 cursor.execute("DELETE FROM packing_list_history WHERE packing_list_id = ?", (packing_list_id,))
                 cursor.execute("DELETE FROM packing_lists WHERE id = ?", (packing_list_id,))
                 conn.commit()
+                FinanceModel.notify_change("packing-list")
                 return True
             except Exception:
                 conn.rollback()
@@ -784,4 +793,5 @@ class PackingListModel(BaseCrud):
                 )
 
             conn.commit()
+            FinanceModel.notify_change("packing-list")
             return packing_list_id

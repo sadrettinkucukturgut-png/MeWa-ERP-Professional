@@ -16,14 +16,17 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from models.company_profile_model import CompanyProfileModel
 from shared.app_assets import get_company_logo_path
 
 
 class PDFService:
     @staticmethod
     def generate_document_pdf_to_path(payload: Any, save_path: str) -> tuple[bool, str | None]:
+        profile = CompanyProfileModel.get_document_profile()
+        company_name = str(profile.get("company_name") or "").strip() or "Company"
         meta_rows = [
-            ["Company", str(getattr(payload, "company_name", "MeWa Automotive") or "MeWa Automotive")],
+            ["Company", str(getattr(payload, "company_name", company_name) or company_name)],
             ["Document Title", str(getattr(payload, "title", "Document") or "Document")],
             ["Customer", str(getattr(payload, "customer_name", "") or "-")],
             ["Customer Code", str(getattr(payload, "customer_code", "") or "-")],
@@ -274,11 +277,13 @@ class PDFService:
 
     @staticmethod
     def _draw_canvas(canvas, doc) -> None:
+        profile = CompanyProfileModel.get_document_profile()
+        company_name = str(profile.get("company_name") or "").strip() or "MeWa ERP Professional"
         canvas.saveState()
         canvas.setFont("DejaVuSans", 8)
         canvas.setFillColor(colors.HexColor("#64748b"))
         canvas.drawString(0.45 * inch, 0.3 * inch, f"Sayfa {canvas.getPageNumber()}")
-        canvas.drawRightString(landscape(A4)[0] - 0.45 * inch, 0.3 * inch, "MeWa ERP Professional")
+        canvas.drawRightString(landscape(A4)[0] - 0.45 * inch, 0.3 * inch, company_name)
         canvas.restoreState()
 
     @staticmethod

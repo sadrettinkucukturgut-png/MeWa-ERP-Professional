@@ -30,6 +30,7 @@ except Exception:  # pragma: no cover - optional QtPdf module
 
 from services.excel_service import ExcelService
 from services.share_service import ShareContext, ShareMethod, ShareService
+from models.company_profile_model import CompanyProfileModel
 from shared.app_assets import get_branding_asset_path, get_company_logo_path, get_document_template_background_path
 
 DEFAULT_MESSAGE_NEVER_SAVED = "This document must be saved before preview."
@@ -38,8 +39,46 @@ DEFAULT_WHATSAPP_MESSAGE = (
     "Dear Customer,\n\n"
     "Please find attached your document.\n\n"
     "Best Regards\n"
-    "MeWa Automotive"
+    "Your Company"
 )
+
+
+def _company_profile() -> dict[str, str]:
+    try:
+        return CompanyProfileModel.get_document_profile()
+    except Exception:
+        return {}
+
+
+def _compose_share_message(document_title: str, document_number: str) -> str:
+    profile = _company_profile()
+    company_name = str(profile.get("company_name") or "").strip() or "Company"
+    return (
+        "Hello,\n\n"
+        f"Please find attached your {document_title}.\n\n"
+        f"Document No:\n{document_number}\n\n"
+        "Best Regards\n\n"
+        f"{company_name}"
+    )
+
+
+def apply_company_profile_to_template(template: DocumentTemplate) -> DocumentTemplate:
+    profile = _company_profile()
+    if not profile:
+        return template
+
+    template.company_name = str(profile.get("company_name") or template.company_name or "")
+    template.company_address = str(profile.get("company_address") or template.company_address or "")
+    template.company_phone = str(profile.get("phone") or template.company_phone or "")
+    template.company_email = str(profile.get("email") or template.company_email or "")
+    template.company_website = str(profile.get("website") or template.company_website or "")
+    template.company_tax_office = str(profile.get("tax_office") or template.company_tax_office or "")
+    template.company_tax_number = str(profile.get("tax_number") or template.company_tax_number or "")
+
+    bank_info = str(profile.get("bank_information") or "").strip()
+    if bank_info:
+        template.bank_information = bank_info
+    return template
 
 
 def _preferred_branding_asset(*filenames: str) -> Path:
@@ -112,12 +151,12 @@ class DocumentTemplate:
     filename_base: str
     document_kind: str = "STANDARD"
     document_id: str = ""
-    company_name: str = "MeWa Automotive"
-    company_address: str = "Istanbul, Turkiye"
-    company_phone: str = "+90 212 000 00 00"
-    company_email: str = "info@mewaautomotive.com"
-    company_website: str = "www.mewaautomotive.com"
-    company_tax_office: str = "Istanbul Tax Office"
+    company_name: str = ""
+    company_address: str = ""
+    company_phone: str = ""
+    company_email: str = ""
+    company_website: str = ""
+    company_tax_office: str = ""
     company_tax_number: str = "0000000000"
     invoice_number: str = ""
     invoice_date: str = ""
@@ -160,7 +199,7 @@ class DocumentTemplate:
     grand_total: str = "0.00"
     notes: str = ""
     terms_conditions: str = ""
-    bank_information: str = "Bank: Sample Bank | IBAN: TR00 0000 0000 0000 0000 0000 00"
+    bank_information: str = ""
     stamp_area_text: str = "Company Stamp"
     signature_text: str = "Authorized Signature"
     thank_you_message: str = "Thank you for your business."
@@ -1151,7 +1190,7 @@ class ProformaPlatypusRenderer:
                 topMargin=20 * mm,
                 bottomMargin=20 * mm,
                 title="PROFORMA INVOICE",
-                author=template.company_name or "MeWa Automotive",
+                author=template.company_name or "Company",
             )
 
             story = [
@@ -1187,11 +1226,28 @@ class ProformaPlatypusRenderer:
 
 
 class PackingListPlatypusRenderer:
-    BOTTOM_FOOTER_LINES = [
-        "HEADOFFICE ADDRESS : Horozluhan Mah. Ahi Evran Cad. PC:42120 Selçuklu Konya / TURKEY",
-        "FACTORY ADDRESS : Fevzi Çakmak Mah. Astim Industrial Zone PC:42200 Karatay Konya / TURKEY",
-        "Tel: +90 532 499 68 89    WhatsApp: +90 532 499 68 89    e-Mail: export@mewaautomotive.com",
-    ]
+    @classmethod
+    def _footer_lines(cls) -> list[str]:
+        profile = _company_profile()
+        city = str(profile.get("city") or "").strip()
+        country = str(profile.get("country") or "").strip()
+        head = str(profile.get("company_address") or "").strip()
+        factory = str(profile.get("factory_address") or "").strip()
+        phone = str(profile.get("phone") or "").strip()
+        whatsapp = str(profile.get("whatsapp") or "").strip()
+        email = str(profile.get("email") or "").strip()
+
+        line1 = f"HEADOFFICE ADDRESS : {head}" if head else "HEADOFFICE ADDRESS : -"
+        line2 = f"FACTORY ADDRESS : {factory}" if factory else "FACTORY ADDRESS : -"
+        contact_parts = []
+        if phone:
+            contact_parts.append(f"Tel: {phone}")
+        if whatsapp:
+            contact_parts.append(f"WhatsApp: {whatsapp}")
+        if email:
+            contact_parts.append(f"e-Mail: {email}")
+        line3 = "    ".join(contact_parts) if contact_parts else f"{city} {country}".strip() or "-"
+        return [line1, line2, line3]
 
     @staticmethod
     def _styles():
@@ -1291,6 +1347,7 @@ class PackingListPlatypusRenderer:
 
     @classmethod
     def _header(cls, template: DocumentTemplate, styles: dict):
+        template = apply_company_profile_to_template(template)
         page_width = A4[0] - (15 * mm) - (15 * mm)
         logo_width = 124
         company_width = 230
@@ -1310,19 +1367,17 @@ class PackingListPlatypusRenderer:
             except Exception:
                 logo_flowable = RLImage(str(logo_path), width=116, height=34)
 
+        company_title = cls._safe_text(template.company_name)
         company_lines = [
-            "<b>MeWa Automotive Ltd.Sti.</b>",
-            "Konya / TURKIYE",
-            "+90 532 499 68 89",
-            "export@mewaautomotive.com",
-            "www.mewaautomotive.com",
+            f"<b>{company_title}</b>",
+            cls._safe_text(template.company_address),
+            cls._safe_text(template.company_phone),
+            cls._safe_text(template.company_email),
+            cls._safe_text(template.company_website),
         ]
         company_paragraph = Paragraph(
-            "<b>MeWa Automotive Ltd.Şti.</b><br/>"
-            "<font size='8'>Konya / TURKIYE<br/>"
-            "+90 532 499 68 89<br/>"
-            "export@mewaautomotive.com<br/>"
-            "www.mewaautomotive.com</font>",
+            f"<b>{company_title}</b><br/>"
+            f"<font size='8'>{'<br/>'.join([line for line in company_lines[1:] if line])}</font>",
             styles["normal"],
         )
 
@@ -1624,7 +1679,7 @@ class PackingListPlatypusRenderer:
         canvas.setFillColor(colors.HexColor("#6B7280"))
 
         y = footer_top
-        for line in cls.BOTTOM_FOOTER_LINES:
+        for line in cls._footer_lines():
             canvas.drawCentredString((left_x + right_x) / 2.0, y, line)
             y -= 8
 
@@ -1633,6 +1688,7 @@ class PackingListPlatypusRenderer:
     @classmethod
     def export_to_path(cls, template: DocumentTemplate, save_path: str) -> tuple[bool, str | None]:
         try:
+            template = apply_company_profile_to_template(template)
             styles = cls._styles()
             doc = SimpleDocTemplate(
                 save_path,
@@ -1642,7 +1698,7 @@ class PackingListPlatypusRenderer:
                 topMargin=18 * mm,
                 bottomMargin=34 * mm,
                 title="PACKING LIST",
-                author=template.company_name or "MeWa Automotive",
+                author=template.company_name or "Company",
             )
 
             story = [
@@ -1667,6 +1723,7 @@ class PackingListPlatypusRenderer:
 
 
 def create_renderer(template: DocumentTemplate):
+    template = apply_company_profile_to_template(template)
     if str(template.document_kind or "").upper() == "PROFORMA":
         return ProformaRenderer(template)
     return DocumentRenderer(template)
@@ -1675,6 +1732,7 @@ def create_renderer(template: DocumentTemplate):
 class PDFExporter:
     @staticmethod
     def export_to_path(template: DocumentTemplate, save_path: str, rotation: int = 0) -> tuple[bool, str | None]:
+        template = apply_company_profile_to_template(template)
         if str(template.document_kind or "").upper() == "PROFORMA":
             return ProformaPlatypusRenderer.export_to_path(template, save_path)
         if str(template.document_kind or "").upper() == "PACKING_LIST":
@@ -1734,6 +1792,7 @@ class PrintManager:
 
     @staticmethod
     def print_template(parent, template: DocumentTemplate, rotation: int = 0) -> bool:
+        template = apply_company_profile_to_template(template)
         if str(template.document_kind or "").upper() == "PROFORMA":
             handle = tempfile.NamedTemporaryFile(prefix="mewa_proforma_", suffix=".pdf", delete=False)
             handle.close()
@@ -1794,7 +1853,7 @@ class DocumentToolbar(QToolBar):
 class DocumentPreviewWindow(QMainWindow):
     def __init__(self, template: DocumentTemplate, parent=None):
         super().__init__(parent)
-        self.template = template
+        self.template = apply_company_profile_to_template(template)
         self._pdf_backed_kinds = {"PROFORMA", "PACKING_LIST"}
         self._is_pdf_backed = str(template.document_kind or "").upper() in self._pdf_backed_kinds
         self._display_title = "PROFORMA INVOICE" if str(template.document_kind or "").upper() == "PROFORMA" else template.document_title
@@ -1842,6 +1901,7 @@ class DocumentPreviewWindow(QMainWindow):
         self.action_print = self.toolbar.addAction("Print")
         self.action_pdf = self.toolbar.addAction("Save PDF")
         self.action_excel = self.toolbar.addAction("Export Excel")
+        self.action_open_folder = self.toolbar.addAction("Open Folder")
 
         self.share_button = QToolButton(self)
         self.share_button.setText("Share")
@@ -1868,6 +1928,7 @@ class DocumentPreviewWindow(QMainWindow):
         self.action_print.triggered.connect(self._on_print)
         self.action_pdf.triggered.connect(self._on_save_pdf)
         self.action_excel.triggered.connect(self._on_export_excel)
+        self.action_open_folder.triggered.connect(lambda: self._share_execute(ShareMethod.OPEN_FOLDER))
         self.action_zoom_in.triggered.connect(self._on_zoom_in)
         self.action_zoom_out.triggered.connect(self._on_zoom_out)
         self.action_fit.triggered.connect(self._on_fit)
@@ -1913,23 +1974,7 @@ class DocumentPreviewWindow(QMainWindow):
         self._share_execute(ShareService.get_default_method())
 
     def _build_share_context(self) -> ShareContext:
-        if str(self.template.document_kind or "").upper() == "PACKING_LIST":
-            message = (
-                "Hello,\n\n"
-                "Please find attached your Packing List.\n\n"
-                "Packing List No:\n"
-                f"{self.template.invoice_number}\n\n"
-                "Best Regards\n\n"
-                "MeWa Automotive Ltd.Şti."
-            )
-        else:
-            message = (
-                "Hello,\n\n"
-                f"Please find attached your {self._display_title}.\n\n"
-                f"Document No:\n{self.template.invoice_number}\n\n"
-                "Best Regards\n\n"
-                "MeWa Automotive Ltd.Şti."
-            )
+        message = _compose_share_message(self._display_title, self.template.invoice_number)
 
         return ShareContext(
             document_type=self._display_title,
@@ -2148,7 +2193,7 @@ class DocumentPreviewController:
 
 
 def build_template_signature(template: DocumentTemplate) -> str:
-    payload = asdict(template)
+    payload = asdict(apply_company_profile_to_template(template))
     return str(payload)
 
 
@@ -2539,7 +2584,7 @@ class ProformaTemplateBuilder:
             grand_total=f"{grand_total:.2f}",
             notes=plain_notes,
             terms_conditions=notes_map.get("terms_conditions", ""),
-            bank_information=notes_map.get("bank_information", "Bank: Sample Bank | IBAN: TR00 0000 0000 0000 0000 0000 00"),
+            bank_information=notes_map.get("bank_information", ""),
             items=items,
         )
 

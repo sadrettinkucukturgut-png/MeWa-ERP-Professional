@@ -7,27 +7,32 @@ from ui.finance_base_page import FinanceBasePage
 class CurrencyPositionPage(FinanceBasePage):
     def __init__(self):
         super().__init__(
-            title="💱 Currency Position",
+            title="💱 Kur Pozisyonu",
             layout_key="finance_currency_position_table",
             column_labels=[
-                "Currency",
-                "Cash",
-                "Bank",
-                "Receivable",
-                "Payable",
-                "Total Assets",
-                "Total Liabilities",
-                "Net Position",
-                "Average Exchange Rate",
-                "Today's Rate",
-                "Difference",
+                "Para Birimi",
+                "Kasa",
+                "Banka",
+                "Alacak",
+                "Borç",
+                "Toplam Varlık",
+                "Toplam Yükümlülük",
+                "Net Pozisyon",
+                "Ortalama Kur",
+                "Bugünkü Kur",
+                "Fark",
             ],
-            stat_titles=["TRY Net", "USD Net", "EUR Net", "Total Net"],
+            stat_titles=["TRY Net", "USD Net", "EUR Net", "Toplam Net"],
         )
         self.action_new.setEnabled(False)
         self.action_edit.setEnabled(False)
         self.action_delete.setEnabled(False)
+        self._listener = self._on_finance_changed
+        FinanceModel.register_listener(self._listener)
         self.load_data()
+
+    def _on_finance_changed(self, _event: str):
+        self.load_data(self.search_input.text().strip())
 
     def load_data(self, keyword: str = ""):
         rows = FinanceModel.currency_position()
@@ -66,6 +71,10 @@ class CurrencyPositionPage(FinanceBasePage):
                 "TRY Net": f"{net_map.get('TRY', 0.0):,.2f}",
                 "USD Net": f"{net_map.get('USD', 0.0):,.2f}",
                 "EUR Net": f"{net_map.get('EUR', 0.0):,.2f}",
-                "Total Net": f"{total_net:,.2f}",
+                "Toplam Net": f"{total_net:,.2f}",
             }
         )
+
+    def closeEvent(self, event):  # noqa: N802
+        FinanceModel.unregister_listener(self._listener)
+        super().closeEvent(event)

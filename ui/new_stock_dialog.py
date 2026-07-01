@@ -18,10 +18,11 @@ from PySide6.QtWidgets import (
 )
 
 from models.stock_model import StockModel
+from ui.base_document_dialog import BaseDocumentDialog
 from ui.stock_reference_dialog import StockReferenceDialog
 
 
-class NewStockDialog(QDialog):
+class NewStockDialog(BaseDocumentDialog):
     def __init__(self, stock_code: str | None = None):
         super().__init__()
         self.stock_code = stock_code
@@ -49,7 +50,7 @@ class NewStockDialog(QDialog):
         content_layout.setSpacing(14)
 
         title = QLabel("📦 Stok Kartı")
-        title.setStyleSheet("font-size: 20px; font-weight: bold;")
+        title.setProperty("role", "sectionTitle")
         content_layout.addWidget(title)
 
         form_layout = QFormLayout()
@@ -147,18 +148,13 @@ class NewStockDialog(QDialog):
         if self.stock_code:
             self.stock_code_input.setEnabled(False)
 
-        button_row = QHBoxLayout()
-        button_row.addStretch()
-
-        save_button = QPushButton("Kaydet")
-        save_button.clicked.connect(self._on_save)
-        save_button.setDefault(True)
-        cancel_button = QPushButton("İptal")
-        cancel_button.clicked.connect(self.reject)
-
-        button_row.addWidget(save_button)
-        button_row.addWidget(cancel_button)
-        content_layout.addLayout(button_row)
+        self.action_bar = self.create_standard_action_bar(include_save_close=True)
+        self.preview_btn.setEnabled(False)
+        self.save_btn.clicked.connect(self._on_save)
+        self.save_btn.setDefault(True)
+        self.save_close_btn.clicked.connect(self._on_save)
+        self.cancel_btn.clicked.connect(self.reject)
+        content_layout.addWidget(self.action_bar)
 
         scroll_area.setWidget(content_widget)
         layout.addWidget(scroll_area)

@@ -4,28 +4,28 @@ from PySide6.QtWidgets import QMessageBox
 
 from models.finance_model import FinanceModel
 from ui.finance_base_page import FinanceBasePage
-from ui.finance_dialogs import SupplierPaymentDialog
+from ui.finance_dialogs import ExchangeRateDialog, SupplierPaymentDialog
 
 
 class SupplierPaymentsPage(FinanceBasePage):
     def __init__(self):
         super().__init__(
-            title="💸 Supplier Payments",
+            title="💸 Tedarikçi Ödemeleri",
             layout_key="finance_supplier_payments_table",
             column_labels=[
                 "ID",
-                "Date",
-                "Payment No",
-                "Supplier",
-                "Purchase Invoice",
-                "Amount",
-                "Currency",
-                "Payment Method",
-                "Reference",
-                "Bank/Cash",
-                "Notes",
+                "Tarih",
+                "Ödeme No",
+                "Tedarikçi",
+                "Alış Faturası",
+                "Tutar",
+                "Para Birimi",
+                "Ödeme Yöntemi",
+                "Referans",
+                "Banka/Kasa",
+                "Notlar",
             ],
-            stat_titles=["Today's Payments", "Total Payments", "Payables", "Records"],
+            stat_titles=["Bugünkü Ödeme", "Toplam Ödeme", "Borçlar", "Kayıt"],
         )
         self.load_data()
 
@@ -40,6 +40,8 @@ class SupplierPaymentsPage(FinanceBasePage):
             total += amount
             if str(row.get("payment_date") or "") == today:
                 today_total += amount
+            method = str(row.get("payment_method") or "")
+            method_text = "Banka" if method == "BANK" else "Kasa" if method == "CASH" else method
             table_rows.append(
                 [
                     str(row.get("id") or ""),
@@ -49,7 +51,7 @@ class SupplierPaymentsPage(FinanceBasePage):
                     str(row.get("purchase_invoice_number") or ""),
                     f"{amount:,.2f}",
                     str(row.get("currency") or "USD"),
-                    str(row.get("payment_method") or ""),
+                    method_text,
                     str(row.get("reference_no") or ""),
                     str(row.get("bank_or_cash") or ""),
                     str(row.get("notes") or ""),
@@ -60,10 +62,10 @@ class SupplierPaymentsPage(FinanceBasePage):
         self.set_table_rows(table_rows)
         self.set_stats(
             {
-                "Today's Payments": f"{today_total:,.2f}",
-                "Total Payments": f"{total:,.2f}",
-                "Payables": f"{float(summary.get('payables') or 0):,.2f}",
-                "Records": str(len(rows)),
+                "Bugünkü Ödeme": f"{today_total:,.2f}",
+                "Toplam Ödeme": f"{total:,.2f}",
+                "Borçlar": f"{float(summary.get('payables') or 0):,.2f}",
+                "Kayıt": str(len(rows)),
             }
         )
 
@@ -88,24 +90,37 @@ class SupplierPaymentsPage(FinanceBasePage):
         )
         if not dlg.exec():
             return
+        payload = dlg.payload()
+        supplier_id = int(payload.get("supplier_id") or 0)
+        voucher_currency = str(payload.get("currency") or "USD").strip().upper() or "USD"
+        account_currency = FinanceModel.supplier_account_currency(supplier_id)
+        exchange_rate = 1.0
+        if voucher_currency != account_currency:
+            exchange_rate = ExchangeRateDialog.ask_rate(
+                parent=self,
+                account_currency=account_currency,
+                voucher_currency=voucher_currency,
+            )
+            if exchange_rate is None:
+                return
         try:
-            FinanceModel.create_supplier_payment(**dlg.payload())
+            FinanceModel.create_supplier_payment(**payload, exchange_rate=exchange_rate)
             self.load_data(self.search_input.text())
         except Exception as exc:
-            QMessageBox.critical(self, "Error", str(exc))
+            QMessageBox.critical(self, "Hata", str(exc))
 
     def _on_edit(self):
-        QMessageBox.information(self, "Info", "Payments are immutable after posting. Use delete and recreate.")
+        QMessageBox.information(self, "Bilgi", "Ödemeler kayıt sonrası değiştirilemez. Silip yeniden oluşturun.")
 
     def _on_delete(self):
         selected_id = self._selected_id()
         if selected_id <= 0:
             return
-        answer = QMessageBox.question(self, "Delete", "Delete selected payment? This will rollback balances.")
+        answer = QMessageBox.question(self, "Sil", "Seçili ödeme silinsin mi? Bu işlem bakiyeleri geri alacaktır.")
         if answer != QMessageBox.Yes:
             return
         try:
             FinanceModel.delete_supplier_payment(selected_id)
             self.load_data(self.search_input.text())
         except Exception as exc:
-            QMessageBox.critical(self, "Error", str(exc))
+            QMessageBox.critical(self, "Hata", str(exc))

@@ -15,9 +15,10 @@ from PySide6.QtWidgets import (
 )
 
 from models.supplier_model import SupplierModel
+from ui.base_document_dialog import BaseDocumentDialog
 
 
-class NewSupplierDialog(QDialog):
+class NewSupplierDialog(BaseDocumentDialog):
     def __init__(self, supplier_code: str | None = None, parent=None):
         super().__init__(parent)
         self.supplier_code = supplier_code
@@ -45,7 +46,7 @@ class NewSupplierDialog(QDialog):
         content_layout.setSpacing(12)
 
         title = QLabel("🏭 Tedarikçi Kartı")
-        title.setStyleSheet("font-size: 20px; font-weight: bold;")
+        title.setProperty("role", "sectionTitle")
         content_layout.addWidget(title)
 
         form_layout = QFormLayout()
@@ -106,16 +107,13 @@ class NewSupplierDialog(QDialog):
         if self.is_edit_mode:
             self.supplier_code_input.setEnabled(False)
 
-        button_row = QHBoxLayout()
-        button_row.addStretch()
-        save_button = QPushButton("Kaydet")
-        save_button.clicked.connect(self._on_save)
-        save_button.setDefault(True)
-        cancel_button = QPushButton("İptal")
-        cancel_button.clicked.connect(self.reject)
-        button_row.addWidget(save_button)
-        button_row.addWidget(cancel_button)
-        content_layout.addLayout(button_row)
+        self.action_bar = self.create_standard_action_bar(include_save_close=True)
+        self.preview_btn.setEnabled(False)
+        self.save_btn.clicked.connect(self._on_save)
+        self.save_btn.setDefault(True)
+        self.save_close_btn.clicked.connect(self._on_save)
+        self.cancel_btn.clicked.connect(self.reject)
+        content_layout.addWidget(self.action_bar)
 
         scroll_area.setWidget(content_widget)
         layout.addWidget(scroll_area)

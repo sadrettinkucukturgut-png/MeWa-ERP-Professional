@@ -9,15 +9,20 @@ from ui.finance_base_page import FinanceBasePage
 class CashFlowPage(FinanceBasePage):
     def __init__(self):
         super().__init__(
-            title="📊 Cash Flow",
+            title="📊 Nakit Akışı",
             layout_key="finance_cash_flow_table",
-            column_labels=["Period", "Expected Collections", "Expected Payments", "Net", "Status"],
-            stat_titles=["Total Cash", "Today's Collections", "Today's Payments", "Net Cash"],
+            column_labels=["Dönem", "Beklenen Tahsilat", "Beklenen Ödeme", "Net", "Durum"],
+            stat_titles=["Toplam Nakit", "Bugünkü Tahsilat", "Bugünkü Ödeme", "Net Nakit"],
         )
         self.action_new.setEnabled(False)
         self.action_edit.setEnabled(False)
         self.action_delete.setEnabled(False)
+        self._listener = self._on_finance_changed
+        FinanceModel.register_listener(self._listener)
         self.load_data()
+
+    def _on_finance_changed(self, _event: str):
+        self.load_data(self.search_input.text().strip())
 
     def load_data(self, keyword: str = ""):
         summary = FinanceModel.cash_flow_summary()
@@ -30,10 +35,10 @@ class CashFlowPage(FinanceBasePage):
         payables = float(summary.get("payables") or 0)
 
         rows = [
-            [str(today), f"{float(summary.get('today_collections') or 0):,.2f}", f"{float(summary.get('today_payments') or 0):,.2f}", f"{float(summary.get('today_collections') or 0) - float(summary.get('today_payments') or 0):,.2f}", "Today"],
-            [str(tomorrow), f"{(receivables * 0.05):,.2f}", f"{(payables * 0.05):,.2f}", f"{(receivables - payables) * 0.05:,.2f}", "Tomorrow"],
-            [str(next_week), f"{(receivables * 0.25):,.2f}", f"{(payables * 0.25):,.2f}", f"{(receivables - payables) * 0.25:,.2f}", "Next Week"],
-            [str(next_month), f"{(receivables * 0.60):,.2f}", f"{(payables * 0.60):,.2f}", f"{(receivables - payables) * 0.60:,.2f}", "Next Month"],
+            [str(today), f"{float(summary.get('today_collections') or 0):,.2f}", f"{float(summary.get('today_payments') or 0):,.2f}", f"{float(summary.get('today_collections') or 0) - float(summary.get('today_payments') or 0):,.2f}", "Bugün"],
+            [str(tomorrow), f"{(receivables * 0.05):,.2f}", f"{(payables * 0.05):,.2f}", f"{(receivables - payables) * 0.05:,.2f}", "Yarın"],
+            [str(next_week), f"{(receivables * 0.25):,.2f}", f"{(payables * 0.25):,.2f}", f"{(receivables - payables) * 0.25:,.2f}", "Gelecek Hafta"],
+            [str(next_month), f"{(receivables * 0.60):,.2f}", f"{(payables * 0.60):,.2f}", f"{(receivables - payables) * 0.60:,.2f}", "Gelecek Ay"],
         ]
 
         if keyword.strip():
@@ -43,9 +48,13 @@ class CashFlowPage(FinanceBasePage):
         self.set_table_rows(rows)
         self.set_stats(
             {
-                "Total Cash": f"{float(summary.get('total_cash') or 0) + float(summary.get('total_banks') or 0):,.2f}",
-                "Today's Collections": f"{float(summary.get('today_collections') or 0):,.2f}",
-                "Today's Payments": f"{float(summary.get('today_payments') or 0):,.2f}",
-                "Net Cash": f"{float(summary.get('net_cash') or 0):,.2f}",
+                "Toplam Nakit": f"{float(summary.get('total_cash') or 0) + float(summary.get('total_banks') or 0):,.2f}",
+                "Bugünkü Tahsilat": f"{float(summary.get('today_collections') or 0):,.2f}",
+                "Bugünkü Ödeme": f"{float(summary.get('today_payments') or 0):,.2f}",
+                "Net Nakit": f"{float(summary.get('net_cash') or 0):,.2f}",
             }
         )
+
+    def closeEvent(self, event):  # noqa: N802
+        FinanceModel.unregister_listener(self._listener)
+        super().closeEvent(event)

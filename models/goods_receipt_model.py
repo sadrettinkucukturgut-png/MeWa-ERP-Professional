@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.crud_base import BaseCrud
+from models.finance_model import FinanceModel
 
 
 class GoodsReceiptModel(BaseCrud):
@@ -381,6 +382,55 @@ class GoodsReceiptModel(BaseCrud):
             conn.commit()
 
         cls._update_purchase_order_receipt_status(purchase_order_id)
+
+    @classmethod
+    def delete_receipt(cls, receipt_number: str, *, is_admin: bool = False) -> None:
+        number = str(receipt_number or "").strip()
+        if not number:
+            raise ValueError("Fiş numarası gereklidir.")
+
+        with cls()._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, purchase_order_id, COALESCE(status, 'Draft') FROM goods_receipts WHERE receipt_number = ?",
+                (number,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise ValueError("Mal kabul kaydı bulunamadı.")
+
+            receipt_id = int(row[0])
+            purchase_order_id = int(row[1] or 0)
+            status = str(row[2] or "Draft").strip().lower()
+            if status not in {"draft", "cancelled"} and not is_admin:
+                raise ValueError("İşlenmiş belge doğrudan silinemez. Önce iptal edin.")
+
+            cursor.execute("BEGIN TRANSACTION")
+            try:
+                cursor.execute(
+                    "SELECT stock_id, COALESCE(received_qty, 0) FROM goods_receipt_items WHERE receipt_id = ?",
+                    (receipt_id,),
+                )
+                for stock_id, qty in cursor.fetchall():
+                    sid = int(stock_id or 0)
+                    amount = float(qty or 0)
+                    if sid > 0 and amount > 0:
+                        cursor.execute(
+                            "UPDATE stoklar SET current_stock = COALESCE(current_stock, 0) - ? WHERE id = ?",
+                            (amount, sid),
+                        )
+
+                cursor.execute("DELETE FROM stock_movements WHERE reference_type = ? AND reference_no = ?", ("GoodsReceipt", number))
+                cursor.execute("DELETE FROM goods_receipt_items WHERE receipt_id = ?", (receipt_id,))
+                cursor.execute("DELETE FROM goods_receipts WHERE id = ?", (receipt_id,))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        if purchase_order_id > 0:
+            cls._update_purchase_order_receipt_status(purchase_order_id)
+        FinanceModel.notify_change("goods-receipt")
 
     @classmethod
     def _update_purchase_order_receipt_status(cls, purchase_order_id: int) -> None:

@@ -38,6 +38,7 @@ from services.document_preview_engine import (
     resolve_party_details,
 )
 from shared.widgets.stock_lookup_dialog import StockLookupDialog
+from ui.base_document_dialog import BaseDocumentDialog
 
 
 class StockSelectionDialog(QDialog):
@@ -122,7 +123,7 @@ class StockSelectionDialog(QDialog):
         self.accept()
 
 
-class NewPurchaseOrderDialog(QDialog):
+class NewPurchaseOrderDialog(BaseDocumentDialog):
     COL_STOCK_CODE = 0
     COL_BARCODE = 1
     COL_PRODUCT_NAME = 2
@@ -308,21 +309,13 @@ class NewPurchaseOrderDialog(QDialog):
 
         content_layout.addWidget(totals_frame)
 
-        button_row = QHBoxLayout()
-        button_row.addStretch()
-
-        self.preview_btn = QPushButton("Önizleme")
+        self.action_bar = self.create_standard_action_bar(include_save_close=True)
         self.preview_btn.clicked.connect(self._on_preview)
-        self.save_btn = QPushButton("Kaydet")
         self.save_btn.setDefault(True)
         self.save_btn.clicked.connect(self._on_save)
-        self.cancel_btn = QPushButton("İptal")
+        self.save_close_btn.clicked.connect(self._on_save_and_close)
         self.cancel_btn.clicked.connect(self.reject)
-
-        button_row.addWidget(self.preview_btn)
-        button_row.addWidget(self.save_btn)
-        button_row.addWidget(self.cancel_btn)
-        content_layout.addLayout(button_row)
+        content_layout.addWidget(self.action_bar)
 
         scroll_area.setWidget(content)
         root.addWidget(scroll_area)
@@ -331,8 +324,6 @@ class NewPurchaseOrderDialog(QDialog):
             "QDialog{background:#0b1220;} QLabel{color:#e2e8f0;}"
             "QLineEdit,QComboBox,QDateEdit,QTextEdit,QDoubleSpinBox{"
             "background:#0f172a; color:#e2e8f0; border:1px solid #334155; border-radius:8px; padding:6px;}"
-            "QPushButton{background:#1e293b; color:#f8fafc; border:1px solid #334155; border-radius:8px; padding:8px 12px;}"
-            "QPushButton:hover{background:#334155;}"
         )
 
     def _resolve_logo_path(self) -> Path:
@@ -580,6 +571,13 @@ class NewPurchaseOrderDialog(QDialog):
 
     def _on_save(self):
         self._save_document(close_on_success=True)
+
+    def _on_save_and_close(self):
+        must_save = (not self._has_persisted_document) or self._has_unsaved_changes()
+        if must_save:
+            if not self._save_document(close_on_success=False):
+                return
+        self.accept()
 
     def _save_document(self, close_on_success: bool) -> bool:
         supplier_name = self.supplier_combo.currentText().strip()

@@ -67,6 +67,10 @@ class GoodsReceiptPage(QWidget):
         self.action_edit.triggered.connect(self._edit_selected)
         self.toolbar.addAction(self.action_edit)
 
+        self.action_delete = QAction("🗑 Sil", self)
+        self.action_delete.triggered.connect(self._delete_selected)
+        self.toolbar.addAction(self.action_delete)
+
         self.action_cancel = QAction("🛑 İptal", self)
         self.action_cancel.triggered.connect(self._cancel_selected)
         self.toolbar.addAction(self.action_cancel)
@@ -248,6 +252,19 @@ class GoodsReceiptPage(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Hata", f"İptal işlemi başarısız oldu:\n{exc}")
 
+    def _delete_selected(self):
+        receipt_no = self._selected_receipt_no()
+        if not receipt_no:
+            return
+        answer = QMessageBox.question(self, "Sil", "Bu kayıt silinsin mi?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            GoodsReceiptModel.delete_receipt(receipt_no)
+            self.load_receipts(self.search_input.text())
+        except Exception as exc:
+            QMessageBox.warning(self, "Uyarı", str(exc))
+
     def _show_column_menu(self):
         menu = QMenu(self)
         for index, label in enumerate(self.column_labels):
@@ -264,11 +281,17 @@ class GoodsReceiptPage(QWidget):
             self.table.selectRow(row)
 
         menu = QMenu(self)
+        open_action = QAction("Open", self)
         edit_action = QAction("Düzenle", self)
+        delete_action = QAction("Delete", self)
         edit_action.triggered.connect(self._edit_selected)
+        open_action.triggered.connect(self._edit_selected)
+        delete_action.triggered.connect(self._delete_selected)
         cancel_action = QAction("İptal", self)
         cancel_action.triggered.connect(self._cancel_selected)
+        menu.addAction(open_action)
         menu.addAction(edit_action)
+        menu.addAction(delete_action)
         menu.addAction(cancel_action)
         menu.exec_(self.table.viewport().mapToGlobal(pos))
 

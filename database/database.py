@@ -628,6 +628,56 @@ def _ensure_finance_tables(cursor):
         """
     )
 
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cash_transactions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            voucher_no TEXT UNIQUE NOT NULL,
+            transaction_date TEXT NOT NULL,
+            party_type TEXT,
+            party_id INTEGER,
+            customer_id INTEGER,
+            supplier_id INTEGER,
+            transaction_type TEXT NOT NULL,
+            amount REAL NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            description TEXT,
+            cash_account_id INTEGER NOT NULL,
+            balance_after REAL NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (cash_account_id) REFERENCES cash_accounts(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+            FOREIGN KEY (customer_id) REFERENCES cariler(id) ON UPDATE CASCADE ON DELETE SET NULL,
+            FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON UPDATE CASCADE ON DELETE SET NULL
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bank_transactions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            voucher_no TEXT UNIQUE NOT NULL,
+            transaction_date TEXT NOT NULL,
+            bank_account_id INTEGER NOT NULL,
+            party_type TEXT,
+            party_id INTEGER,
+            customer_id INTEGER,
+            supplier_id INTEGER,
+            transfer_type TEXT NOT NULL,
+            amount REAL NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            description TEXT,
+            balance_after REAL NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+            FOREIGN KEY (customer_id) REFERENCES cariler(id) ON UPDATE CASCADE ON DELETE SET NULL,
+            FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON UPDATE CASCADE ON DELETE SET NULL
+        )
+        """
+    )
+
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cash_accounts_currency ON cash_accounts(currency)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_bank_accounts_currency ON bank_accounts(currency)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_finance_txn_date ON finance_transactions(transaction_date)")
@@ -638,6 +688,116 @@ def _ensure_finance_tables(cursor):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_customer_collections_date ON customer_collections(collection_date)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_supplier_payments_supplier ON supplier_payments(supplier_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_supplier_payments_date ON supplier_payments(payment_date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cash_txn_date ON cash_transactions(transaction_date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cash_txn_cash_id ON cash_transactions(cash_account_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cash_txn_customer_id ON cash_transactions(customer_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cash_txn_supplier_id ON cash_transactions(supplier_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_bank_txn_date ON bank_transactions(transaction_date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_bank_txn_bank_id ON bank_transactions(bank_account_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_bank_txn_customer_id ON bank_transactions(customer_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_bank_txn_supplier_id ON bank_transactions(supplier_id)")
+
+
+def _ensure_company_profile_table(cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS company_profile(
+            id INTEGER PRIMARY KEY,
+            company_name TEXT,
+            company_short_name TEXT,
+            tax_office TEXT,
+            tax_number TEXT,
+            mersis_number TEXT,
+            trade_registry_number TEXT,
+            phone TEXT,
+            mobile TEXT,
+            whatsapp TEXT,
+            email TEXT,
+            website TEXT,
+            address TEXT,
+            factory_address TEXT,
+            city TEXT,
+            postal_code TEXT,
+            country TEXT,
+            bank_name TEXT,
+            iban TEXT,
+            swift TEXT,
+            currency TEXT,
+            logo_path TEXT,
+            stamp_path TEXT,
+            signature_path TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+
+    cursor.execute("SELECT id FROM company_profile ORDER BY id")
+    rows = cursor.fetchall()
+    ids = [int(row[0]) for row in rows]
+
+    if not ids:
+        cursor.execute(
+            """
+            INSERT INTO company_profile(
+                id,
+                company_name,
+                company_short_name,
+                tax_office,
+                tax_number,
+                mersis_number,
+                trade_registry_number,
+                phone,
+                mobile,
+                whatsapp,
+                email,
+                website,
+                address,
+                factory_address,
+                city,
+                postal_code,
+                country,
+                bank_name,
+                iban,
+                swift,
+                currency,
+                logo_path,
+                stamp_path,
+                signature_path,
+                created_at,
+                updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                1,
+                "MeWa Automotive Ltd. Şti.",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "Konya",
+                "",
+                "Turkey",
+                "",
+                "",
+                "",
+                "USD",
+                "",
+                "",
+                "",
+            ),
+        )
+    elif len(ids) > 1:
+        placeholders = ", ".join(["?" for _ in ids[1:]])
+        cursor.execute(f"DELETE FROM company_profile WHERE id IN ({placeholders})", ids[1:])
 
 
 def create_database():
@@ -741,6 +901,7 @@ def create_database():
     _ensure_proforma_tables(cursor)
     _ensure_packing_list_tables(cursor)
     _ensure_finance_tables(cursor)
+    _ensure_company_profile_table(cursor)
 
     conn.commit()
     conn.close()

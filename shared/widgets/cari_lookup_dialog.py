@@ -20,6 +20,8 @@ def _normalize_supplier_record(record: Dict[str, Any]) -> Optional[Dict[str, Any
         "firma_unvani": company_name,
         "contact_person": str(record.get("contact_person") or "").strip(),
         "phone": str(record.get("phone") or "").strip(),
+        "tax_number": str(record.get("tax_number") or "").strip(),
+        "vergi_no": str(record.get("tax_number") or "").strip(),
         "yetkili": str(record.get("contact_person") or "").strip(),
         "telefon": str(record.get("phone") or "").strip(),
         "city": str(record.get("city") or "").strip(),
@@ -40,8 +42,8 @@ class CariLookupDialog(LookupDialogBase):
 
         self._build_lookup_shell(
             "Cari Seç",
-            "Cari Kodu, Firma Ünvanı, Yetkili, Telefon, Şehir veya Ülke",
-            ["Cari Kodu", "Firma Ünvanı", "Yetkili", "Telefon", "Şehir", "Ülke", "Cari Tipi"],
+            "Cari Kodu, Firma Ünvanı, Telefon, Vergi No, Ülke veya Şehir",
+            ["Cari Kodu", "Firma Ünvanı", "Yetkili", "Telefon", "Vergi No", "Şehir", "Ülke", "Cari Tipi"],
             920,
             560,
         )
@@ -73,6 +75,7 @@ class CariLookupDialog(LookupDialogBase):
                     record["firma_unvani"],
                     record["yetkili"],
                     record["telefon"],
+                    str(record.get("vergi_no") or record.get("tax_number") or ""),
                     record["sehir"],
                     record["ulke"],
                     record["cari_tipi"],
@@ -91,6 +94,7 @@ class CariLookupDialog(LookupDialogBase):
                 record["firma_unvani"],
                 record["yetkili"],
                 record["telefon"],
+                str(record.get("vergi_no") or record.get("tax_number") or ""),
                 record["sehir"],
                 record["ulke"],
                 record["cari_tipi"],

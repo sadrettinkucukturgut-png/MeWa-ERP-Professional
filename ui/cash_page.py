@@ -1,128 +1,677 @@
 from __future__ import annotations
 
-from PySide6.QtWidgets import QMessageBox
+from datetime import datetime
+
+from PySide6.QtCore import QDate, QEvent, Qt
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QButtonGroup,
+    QComboBox,
+    QDateEdit,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from models.finance_model import FinanceModel
-from ui.finance_base_page import FinanceBasePage
-from ui.finance_dialogs import CashAccountDialog, CashMovementDialog
+from shared.widgets.action_button_bar import ActionButtonBar
+from shared.widgets.cari_lookup_dialog import CariLookupDialog
+from ui.finance_dialogs import ExchangeRateDialog, QuickCashDefinitionDialog
+from services.document_preview_engine import DocumentLineItem, DocumentTemplate, DocumentPreviewWindow
 
 
-class CashPage(FinanceBasePage):
+class CashPage(QWidget):
     def __init__(self):
-        super().__init__(
-            title="💵 Cash",
-            layout_key="finance_cash_table",
-            column_labels=["ID", "Cash Code", "Cash Name", "Currency", "Opening Balance", "Current Balance", "Opening Date", "Notes"],
-            stat_titles=["Total Cash", "TRY", "USD", "EUR"],
-        )
-        self.action_cash_in = self.toolbar.addAction("Cash In")
-        self.action_cash_out = self.toolbar.addAction("Cash Out")
-        self.action_transfer = self.toolbar.addAction("Transfer")
-        self.action_cash_in.triggered.connect(lambda: self._post_movement("CASH_IN"))
-        self.action_cash_out.triggered.connect(lambda: self._post_movement("CASH_OUT"))
-        self.action_transfer.triggered.connect(lambda: self._post_movement("TRANSFER"))
-        self.load_data()
+        super().__init__()
+        self.setObjectName("cashVoucherPage")
+        self._last_saved: dict | None = None
+        self._parties: list[dict] = []
+        self._party_by_key: dict[tuple[str, str], dict] = {}
+        self._customer_by_code: dict[str, dict] = {}
+        self._customer_by_name: dict[str, dict] = {}
+        self._selected_party_data: dict | None = None
+        self._cash_accounts: list[dict] = []
+        self._edit_voucher_no: str | None = None
+        self._preview_windows: list[DocumentPreviewWindow] = []
+        self._listener = self._on_finance_changed
+        FinanceModel.register_listener(self._listener)
+        self._build_ui()
+        self._load_lookup_data()
 
-    def load_data(self, keyword: str = ""):
-        rows = FinanceModel.list_cash_accounts(keyword)
-        table_rows = []
-        totals = {"TRY": 0.0, "USD": 0.0, "EUR": 0.0}
-        total_cash = 0.0
-        for row in rows:
-            bal = float(row.get("current_balance") or 0)
-            cur = str(row.get("currency") or "USD")
-            total_cash += bal
-            totals[cur] = totals.get(cur, 0.0) + bal
-            table_rows.append(
-                [
-                    str(row.get("id") or ""),
-                    str(row.get("cash_code") or ""),
-                    str(row.get("cash_name") or ""),
-                    cur,
-                    f"{float(row.get('opening_balance') or 0):,.2f}",
-                    f"{bal:,.2f}",
-                    str(row.get("opening_date") or ""),
-                    str(row.get("notes") or ""),
-                ]
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(12)
+
+        title = QLabel("💵 Kasa Fişi")
+        title.setAlignment(Qt.AlignCenter)
+        title.setProperty("role", "title")
+        root.addWidget(title)
+
+        card = QFrame()
+        card.setProperty("card", True)
+        card.setMaximumHeight(350)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(16, 16, 16, 16)
+        card_layout.setSpacing(8)
+
+        form = QGridLayout()
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(8)
+
+        self.transaction_date = QDateEdit()
+        self.transaction_date.setCalendarPopup(True)
+        self.transaction_date.setDate(QDate.currentDate())
+        self.transaction_date.setMinimumHeight(36)
+
+        self.cash_combo = QComboBox()
+        self.cash_combo.setMinimumHeight(36)
+
+        self.new_cash_button = QPushButton("Yeni Kasa")
+        self.new_cash_button.setMinimumHeight(36)
+        self.new_cash_button.clicked.connect(self._create_new_cash)
+
+        cash_layout = QHBoxLayout()
+        cash_layout.setSpacing(8)
+        cash_layout.addWidget(self.cash_combo, 1)
+        cash_layout.addWidget(self.new_cash_button)
+        cash_widget = QWidget()
+        cash_widget.setLayout(cash_layout)
+
+        self.customer_code_input = QLineEdit()
+        self.customer_code_input.setReadOnly(True)
+        self.customer_code_input.setMinimumHeight(36)
+        self.customer_code_input.setPlaceholderText("Cari kodu")
+        self.customer_code_input.installEventFilter(self)
+
+        self.customer_name_input = QLineEdit()
+        self.customer_name_input.setReadOnly(True)
+        self.customer_name_input.setMinimumHeight(36)
+        self.customer_name_input.setPlaceholderText("Cari seçmek için F4, çift tık veya ...")
+        self.customer_name_input.installEventFilter(self)
+
+        self.customer_lookup_button = QPushButton("...")
+        self.customer_lookup_button.setMinimumHeight(36)
+        self.customer_lookup_button.setMaximumWidth(44)
+        self.customer_lookup_button.clicked.connect(self._open_cari_lookup)
+
+        self.amount_input = QLineEdit()
+        self.amount_input.setPlaceholderText("0.00")
+        self.amount_input.setMinimumHeight(36)
+
+        self.currency_combo = QComboBox()
+        self.currency_combo.addItems(["TRY", "USD", "EUR"])
+        self.currency_combo.setCurrentText("USD")
+        self.currency_combo.setMinimumHeight(36)
+
+        self.description_input = QTextEdit()
+        self.description_input.setPlaceholderText("İşlem açıklaması")
+        self.description_input.setMinimumHeight(64)
+        self.description_input.setMaximumHeight(74)
+
+        self.balance_value_label = QLabel("0.00 USD")
+        self.balance_value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.balance_value_label.setStyleSheet("font-weight:700; color:#94a3b8;")
+
+        customer_layout = QHBoxLayout()
+        customer_layout.setSpacing(8)
+        customer_layout.addWidget(self.customer_code_input, 1)
+        customer_layout.addWidget(self.customer_name_input, 3)
+        customer_layout.addWidget(self.customer_lookup_button)
+        customer_widget = QWidget()
+        customer_widget.setLayout(customer_layout)
+
+        form.addWidget(QLabel("İşlem Tarihi"), 0, 0)
+        form.addWidget(self.transaction_date, 0, 1)
+        form.addWidget(QLabel("Kasa"), 1, 0)
+        form.addWidget(cash_widget, 1, 1)
+        form.addWidget(QLabel("Müşteri"), 2, 0)
+        form.addWidget(customer_widget, 2, 1)
+        form.addWidget(QLabel("Cari Bakiyesi"), 3, 0)
+        form.addWidget(self.balance_value_label, 3, 1)
+
+        amount_row = QHBoxLayout()
+        amount_row.setSpacing(8)
+        amount_row.addWidget(self.amount_input, 1)
+        amount_row.addWidget(self.currency_combo)
+
+        form.addWidget(QLabel("Tutar"), 4, 0)
+        amount_holder = QWidget()
+        amount_holder.setLayout(amount_row)
+        form.addWidget(amount_holder, 4, 1)
+
+        form.addWidget(QLabel("Açıklama"), 5, 0)
+        form.addWidget(self.description_input, 5, 1)
+
+        card_layout.addLayout(form)
+
+        self.type_group = QGroupBox("İşlem Türü")
+        type_layout = QHBoxLayout(self.type_group)
+        type_layout.setContentsMargins(12, 12, 12, 12)
+        type_layout.setSpacing(10)
+
+        self.income_btn = QPushButton("Tahsilat")
+        self.income_btn.setCheckable(True)
+        self.income_btn.setChecked(True)
+        self.income_btn.setMinimumHeight(42)
+
+        self.expense_btn = QPushButton("Tediye")
+        self.expense_btn.setCheckable(True)
+        self.expense_btn.setMinimumHeight(42)
+
+        self.type_button_group = QButtonGroup(self)
+        self.type_button_group.setExclusive(True)
+        self.type_button_group.addButton(self.income_btn)
+        self.type_button_group.addButton(self.expense_btn)
+
+        type_layout.addWidget(self.income_btn)
+        type_layout.addWidget(self.expense_btn)
+        card_layout.addWidget(self.type_group)
+
+        root.addWidget(card, 1)
+
+        self.today_table = QTableWidget()
+        self.today_table.setColumnCount(9)
+        self.today_table.setHorizontalHeaderLabels(
+            ["Tarih", "Fiş No", "Müşteri", "Açıklama", "Tahsilat/Tediye", "Tutar", "Para Birimi", "Kullanıcı", "Durum"]
+        )
+        self.today_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.today_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.today_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.today_table.setAlternatingRowColors(True)
+        self.today_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.today_table.customContextMenuRequested.connect(self._show_today_context_menu)
+        self.today_table.doubleClicked.connect(self._open_selected_voucher)
+        root.addWidget(self.today_table, 1)
+        root.setStretchFactor(card, 1)
+        root.setStretchFactor(self.today_table, 2)
+
+        self.action_bar = ActionButtonBar(
+            self,
+            include_save_close=True,
+            preview_text="Önizleme",
+            save_text="Kaydet",
+            save_close_text="Kaydet ve Kapat",
+            cancel_text="Vazgeç",
+        )
+        self.preview_btn = self.action_bar.preview_button
+        self.save_btn = self.action_bar.save_button
+        self.save_close_btn = self.action_bar.save_close_button
+        self.cancel_btn = self.action_bar.cancel_button
+        root.addWidget(self.action_bar)
+
+        self.setStyleSheet(
+            "QWidget#cashVoucherPage{background:#0b1220;}"
+            "QLabel{color:#e2e8f0; font-size:13px;}"
+            "QGroupBox{color:#e2e8f0; border:1px solid #334155; border-radius:10px; font-weight:600; margin-top:6px;}"
+            "QGroupBox::title{subcontrol-origin: margin; left:10px; padding:0 4px;}"
+            "QPushButton:checked{background:#14532d; border:1px solid #22c55e; color:#ecfdf5; font-weight:700;}"
+        )
+
+        self.preview_btn.clicked.connect(self._open_preview)
+        self.save_btn.clicked.connect(lambda: self._save(close_after=False))
+        self.save_close_btn.clicked.connect(lambda: self._save(close_after=True))
+        self.cancel_btn.clicked.connect(self._close_current_tab)
+
+        self.amount_input.editingFinished.connect(self._format_amount)
+        self.amount_input.returnPressed.connect(lambda: self._save(close_after=False))
+        self.currency_combo.currentTextChanged.connect(lambda _v: self._update_balance_view())
+        self.save_btn.setDefault(True)
+        self._refresh_today_transactions()
+
+    def _load_lookup_data(self) -> None:
+        self._cash_accounts = FinanceModel.list_cash_accounts()
+        self.cash_combo.clear()
+        self.cash_combo.addItem("Kasa seçiniz", None)
+        for row in self._cash_accounts:
+            self.cash_combo.addItem(
+                f"{row.get('cash_code', '')} - {row.get('cash_name', '')} ({row.get('currency', '')})".strip(),
+                row,
             )
-        self.set_table_rows(table_rows)
-        self.set_stats(
-            {
-                "Total Cash": f"{total_cash:,.2f}",
-                "TRY": f"{totals.get('TRY', 0.0):,.2f}",
-                "USD": f"{totals.get('USD', 0.0):,.2f}",
-                "EUR": f"{totals.get('EUR', 0.0):,.2f}",
-            }
+
+        self._parties = FinanceModel.list_cari_parties()
+        self._party_by_key = {}
+        self._customer_by_code = {}
+        self._customer_by_name = {}
+        for row in self._parties:
+            party_type = str(row.get("party_type") or "")
+            code = str(row.get("code") or "").strip()
+            name = str(row.get("name") or "").strip()
+            key = (code.lower(), name.lower())
+            self._party_by_key[key] = row
+            if party_type == "CUSTOMER":
+                if code:
+                    self._customer_by_code[code.lower()] = row
+                if name:
+                    self._customer_by_name[name.lower()] = row
+
+    def _selected_cash_account(self) -> dict | None:
+        data = self.cash_combo.currentData()
+        return data if isinstance(data, dict) else None
+
+    def _create_new_cash(self) -> None:
+        dialog = QuickCashDefinitionDialog(self)
+        if not dialog.exec():
+            return
+        payload = dialog.payload()
+        notes = (
+            f"Sorumlu: {payload.get('responsible_person', '')} | "
+            f"Durum: {payload.get('status', 'Aktif')} | "
+            f"Açıklama: {payload.get('description', '')}"
         )
+        try:
+            new_id = FinanceModel.save_cash_account(
+                cash_id=None,
+                cash_code=FinanceModel.next_cash_code(),
+                cash_name=str(payload.get("cash_name") or "").strip(),
+                currency=str(payload.get("currency") or "USD").strip().upper() or "USD",
+                opening_balance=float(payload.get("opening_balance") or 0),
+                opening_date=QDate.currentDate().toString("yyyy-MM-dd"),
+                notes=notes,
+            )
+            self._load_lookup_data()
+            for i in range(self.cash_combo.count()):
+                row = self.cash_combo.itemData(i)
+                if isinstance(row, dict) and int(row.get("id") or 0) == int(new_id):
+                    self.cash_combo.setCurrentIndex(i)
+                    break
+        except Exception as exc:
+            QMessageBox.critical(self, "Hata", f"Kasa kaydedilemedi:\n{exc}")
 
-    def _selected_id(self) -> int:
-        row = self.table.currentRow()
+    def _amount_value(self) -> float:
+        text = str(self.amount_input.text() or "").strip()
+        if not text:
+            return 0.0
+        normalized = text.replace(",", "")
+        try:
+            return float(normalized)
+        except ValueError:
+            return 0.0
+
+    def _format_amount(self) -> None:
+        value = self._amount_value()
+        if value <= 0:
+            return
+        self.amount_input.setText(f"{value:,.2f}")
+
+    def _selected_party(self) -> dict | None:
+        return self._selected_party_data
+
+    def _open_cari_lookup(self) -> None:
+        selected_cari = CariLookupDialog.select_cari(self)
+        if selected_cari is None:
+            return
+        self._apply_cari_record(selected_cari)
+
+    def _apply_cari_record(self, record: dict) -> None:
+        code = str(record.get("cari_kodu") or "").strip()
+        name = str(record.get("firma_unvani") or record.get("company_name") or "").strip()
+        supplier_id = int(record.get("supplier_id") or 0)
+
+        party = None
+        if supplier_id > 0:
+            QMessageBox.warning(self, "Uyarı", "Bu ekranda yalnızca müşteri seçebilirsiniz.")
+            return
+
+        if code:
+            party = self._customer_by_code.get(code.lower())
+        if party is None and name:
+            party = self._customer_by_name.get(name.lower())
+
+        if party is None:
+            QMessageBox.warning(self, "Uyarı", "Seçilen cari kaydı işlem için bulunamadı.")
+            return
+
+        self._selected_party_data = dict(party)
+        customer_id = int(party.get("party_id") or 0)
+        account_currency = FinanceModel.customer_account_currency(customer_id)
+        self._selected_party_data["account_currency"] = account_currency
+        self.customer_code_input.setText(str(party.get("code") or ""))
+        self.customer_name_input.setText(str(party.get("name") or ""))
+
+        default_currency = account_currency
+        if default_currency:
+            self.currency_combo.setCurrentText(default_currency)
+
+        self._update_balance_view()
+        self.raise_()
+        self.activateWindow()
+        self.amount_input.setFocus()
+
+    def _update_balance_view(self) -> None:
+        party = self._selected_party()
+        if party is None:
+            self.balance_value_label.setText(f"0.00 {self.currency_combo.currentText().strip() or 'USD'}")
+            self.balance_value_label.setStyleSheet("font-weight:700; color:#94a3b8;")
+            return
+
+        customer_id = int(party.get("party_id") or 0)
+        balance = FinanceModel.customer_balance(customer_id)
+        currency = str(party.get("account_currency") or FinanceModel.customer_account_currency(customer_id))
+        if balance > 0:
+            self.balance_value_label.setText(f"{balance:,.2f} {currency} (ALACAKLIYIZ)")
+            self.balance_value_label.setStyleSheet("font-weight:700; color:#16a34a;")
+        elif balance < 0:
+            self.balance_value_label.setText(f"{abs(balance):,.2f} {currency} (BORÇLUYUZ)")
+            self.balance_value_label.setStyleSheet("font-weight:700; color:#dc2626;")
+        else:
+            self.balance_value_label.setText(f"BAKIYE YOK (0.00 {currency})")
+            self.balance_value_label.setStyleSheet("font-weight:700; color:#94a3b8;")
+
+    def _show_today_context_menu(self, pos):
+        row = self.today_table.rowAt(pos.y())
+        if row >= 0:
+            self.today_table.selectRow(row)
+
+        menu = QMenu(self)
+        action_open = QAction("Open", self)
+        action_edit = QAction("Edit", self)
+        action_delete = QAction("Delete", self)
+        action_duplicate = QAction("Duplicate", self)
+        action_print = QAction("Print", self)
+        action_duplicate.setEnabled(False)
+        action_print.setEnabled(False)
+
+        action_open.triggered.connect(self._open_selected_voucher)
+        action_edit.triggered.connect(self._open_selected_voucher)
+        action_delete.triggered.connect(self._delete_selected_voucher)
+
+        menu.addAction(action_open)
+        menu.addAction(action_edit)
+        menu.addAction(action_delete)
+        menu.addSeparator()
+        menu.addAction(action_duplicate)
+        menu.addAction(action_print)
+        menu.exec_(self.today_table.viewport().mapToGlobal(pos))
+
+    def _delete_selected_voucher(self):
+        row = self.today_table.currentRow()
         if row < 0:
-            return 0
-        item = self.table.item(row, 0)
-        if item is None:
-            return 0
-        try:
-            return int(item.text().strip() or 0)
-        except Exception:
-            return 0
+            return
+        item = self.today_table.item(row, 0)
+        payload = item.data(Qt.UserRole) if item is not None else None
+        if not isinstance(payload, dict):
+            return
+        voucher_no = str(payload.get("voucher_no") or "").strip()
+        if not voucher_no:
+            return
 
-    def _find_raw_row(self, cash_id: int) -> dict | None:
-        for row in FinanceModel.list_cash_accounts(self.search_input.text()):
-            if int(row.get("id") or 0) == cash_id:
-                return row
-        return None
-
-    def _on_new(self):
-        dlg = CashAccountDialog(self)
-        if not dlg.exec():
-            return
-        try:
-            FinanceModel.save_cash_account(cash_id=None, **dlg.payload())
-            self.load_data(self.search_input.text())
-        except Exception as exc:
-            QMessageBox.critical(self, "Error", str(exc))
-
-    def _on_edit(self):
-        cash_id = self._selected_id()
-        if cash_id <= 0:
-            return
-        data = self._find_raw_row(cash_id)
-        if not data:
-            return
-        dlg = CashAccountDialog(self, data=data)
-        if not dlg.exec():
-            return
-        try:
-            FinanceModel.save_cash_account(cash_id=cash_id, **dlg.payload())
-            self.load_data(self.search_input.text())
-        except Exception as exc:
-            QMessageBox.critical(self, "Error", str(exc))
-
-    def _on_delete(self):
-        cash_id = self._selected_id()
-        if cash_id <= 0:
-            return
-        answer = QMessageBox.question(self, "Delete", "Delete selected cash account?")
+        answer = QMessageBox.question(self, "Sil", "Bu kayıt silinsin mi?")
         if answer != QMessageBox.Yes:
             return
         try:
-            FinanceModel.delete_cash_account(cash_id)
-            self.load_data(self.search_input.text())
+            FinanceModel.delete_cash_transaction(voucher_no)
+            if self._edit_voucher_no == voucher_no:
+                self._reset_form(keep_party=True)
+            self._refresh_today_transactions()
+            self._update_balance_view()
         except Exception as exc:
-            QMessageBox.critical(self, "Error", str(exc))
+            QMessageBox.critical(self, "Hata", str(exc))
 
-    def _post_movement(self, movement_type: str):
-        dlg = CashMovementDialog(
-            parent=self,
-            movement_type=movement_type,
-            cash_accounts=FinanceModel.list_cash_accounts(),
-            banks=FinanceModel.list_bank_accounts(),
-        )
-        if not dlg.exec():
+    def _on_finance_changed(self, _event: str) -> None:
+        self._load_lookup_data()
+        self._update_balance_view()
+        self._refresh_today_transactions()
+
+    def _refresh_today_transactions(self) -> None:
+        rows = FinanceModel.list_today_cash_transactions(self.transaction_date.date().toString("yyyy-MM-dd"))
+        self.today_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            values = [
+                str(row.get("transaction_date") or ""),
+                str(row.get("voucher_no") or ""),
+                str(row.get("customer_name") or ""),
+                str(row.get("description") or ""),
+                str(row.get("direction_text") or ""),
+                f"{float(row.get('amount') or 0):,.2f}",
+                str(row.get("currency") or "USD"),
+                str(row.get("user") or "SYSTEM"),
+                str(row.get("status") or "Posted"),
+            ]
+            for c, val in enumerate(values):
+                item = QTableWidgetItem(val)
+                if c == 5:
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.today_table.setItem(r, c, item)
+            first_item = self.today_table.item(r, 0)
+            if first_item is not None:
+                first_item.setData(Qt.UserRole, row)
+
+    def _open_selected_voucher(self, *_args):
+        row = self.today_table.currentRow()
+        if row < 0:
             return
+        item = self.today_table.item(row, 0)
+        payload = item.data(Qt.UserRole) if item is not None else None
+        if not isinstance(payload, dict):
+            return
+        voucher_no = str(payload.get("voucher_no") or "").strip()
+        if not voucher_no:
+            return
+        data = FinanceModel.get_cash_transaction(voucher_no)
+        if not isinstance(data, dict):
+            return
+
+        self._edit_voucher_no = voucher_no
+        tx_date = QDate.fromString(str(data.get("transaction_date") or ""), "yyyy-MM-dd")
+        if tx_date.isValid():
+            self.transaction_date.setDate(tx_date)
+
+        self._load_lookup_data()
+        cash_id = int(data.get("cash_account_id") or 0)
+        for i in range(self.cash_combo.count()):
+            row_data = self.cash_combo.itemData(i)
+            if isinstance(row_data, dict) and int(row_data.get("id") or 0) == cash_id:
+                self.cash_combo.setCurrentIndex(i)
+                break
+
+        party_type = str(data.get("party_type") or "")
+        party_id = int(data.get("party_id") or 0)
+        selected = None
+        for row_data in self._parties:
+            if str(row_data.get("party_type") or "") == party_type and int(row_data.get("party_id") or 0) == party_id:
+                selected = row_data
+                break
+        if selected is not None:
+            self._selected_party_data = dict(selected)
+            cid = int(selected.get("party_id") or 0)
+            self._selected_party_data["account_currency"] = FinanceModel.customer_account_currency(cid)
+            self.customer_code_input.setText(str(selected.get("code") or ""))
+            self.customer_name_input.setText(str(selected.get("name") or ""))
+
+        self.amount_input.setText(f"{float(data.get('amount') or 0):,.2f}")
+        self.currency_combo.setCurrentText(str(data.get("currency") or "USD"))
+        self.description_input.setPlainText(str(data.get("description") or ""))
+        self.income_btn.setChecked(str(data.get("transaction_type") or "") == "INCOME")
+        self.expense_btn.setChecked(str(data.get("transaction_type") or "") == "EXPENSE")
+        self._update_balance_view()
+
+    def _resolve_exchange_rate(self, party: dict) -> float | None:
+        customer_currency = str(party.get("account_currency") or "USD").strip().upper() or "USD"
+        voucher_currency = self.currency_combo.currentText().strip().upper() or "USD"
+        if customer_currency == voucher_currency:
+            return 1.0
+        rate = ExchangeRateDialog.ask_rate(
+            parent=self,
+            account_currency=customer_currency,
+            voucher_currency=voucher_currency,
+        )
+        return rate
+
+    def _validate(self) -> bool:
+        party = self._selected_party()
+        if party is None:
+            QMessageBox.warning(self, "Doğrulama", "Lütfen bir müşteri seçin.")
+            return False
+        if self._selected_cash_account() is None:
+            QMessageBox.warning(self, "Doğrulama", "Lütfen bir kasa seçin.")
+            return False
+        if self._amount_value() <= 0:
+            QMessageBox.warning(self, "Doğrulama", "Tutar 0'dan büyük olmalıdır.")
+            return False
+        return True
+
+    def _transaction_type(self) -> str:
+        return "INCOME" if self.income_btn.isChecked() else "EXPENSE"
+
+    def _build_template(self) -> DocumentTemplate:
+        party = self._selected_party() or {}
+        amount = self._amount_value()
+        currency = self.currency_combo.currentText().strip() or "USD"
+        tx_type = self._transaction_type()
+        date_text = self.transaction_date.date().toString("yyyy-MM-dd")
+        voucher_no = str((self._last_saved or {}).get("voucher_no") or "DRAFT")
+
+        line = DocumentLineItem(
+            line_no=1,
+            product_code="CASH",
+            description=str(self.description_input.toPlainText().strip() or "Kasa işlemi"),
+            quantity="1",
+            unit="TXN",
+            unit_price=f"{amount:.2f}",
+            discount="0",
+            vat="0",
+            total=f"{amount:.2f}",
+        )
+
+        party_name = str(party.get("name") or "")
+        party_code = str(party.get("code") or "")
+        notes_lines = [
+            f"Fiş Numarası: {voucher_no}",
+            f"Cari: {party_code} - {party_name}".strip(" -"),
+            f"İşlem Türü: {'Tahsilat' if tx_type == 'INCOME' else 'Tediye'}",
+            f"Para Birimi: {currency}",
+            f"Tutar: {amount:,.2f}",
+            "İmza: __________________________",
+        ]
+
+        return DocumentTemplate(
+            document_title="KASA FİŞİ",
+            filename_base=f"cash_voucher_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            invoice_number=voucher_no,
+            invoice_date=date_text,
+            due_date=date_text,
+            currency=currency,
+            customer_name=party_name,
+            customer_company_name=party_name,
+            customer_code=party_code,
+            customer_phone="",
+            customer_email="",
+            subtotal=f"{amount:.2f}",
+            discount_total="0.00",
+            vat_total="0.00",
+            grand_total=f"{amount:.2f}",
+            notes="\n".join(notes_lines),
+            items=[line],
+        )
+
+    def _open_preview(self) -> None:
+        if not self._validate():
+            return
+        preview = DocumentPreviewWindow(template=self._build_template(), parent=self)
+        self._preview_windows.append(preview)
+        preview.show()
+        preview.raise_()
+        preview.activateWindow()
+
+    def _save(self, *, close_after: bool) -> bool:
+        if not self._validate():
+            return False
+
+        party = self._selected_party() or {}
+        cash_account = self._selected_cash_account() or {}
+        exchange_rate = self._resolve_exchange_rate(party)
+        if exchange_rate is None:
+            return False
         try:
-            FinanceModel.post_cash_movement(**dlg.payload())
-            self.load_data(self.search_input.text())
+            payload = {
+                "transaction_date": self.transaction_date.date().toString("yyyy-MM-dd"),
+                "party_type": str(party.get("party_type") or ""),
+                "party_id": int(party.get("party_id") or 0),
+                "transaction_type": self._transaction_type(),
+                "amount": self._amount_value(),
+                "currency": self.currency_combo.currentText().strip() or "USD",
+                "description": self.description_input.toPlainText().strip(),
+                "cash_account_id": int(cash_account.get("id") or 0),
+                "exchange_rate": exchange_rate,
+            }
+            if self._edit_voucher_no:
+                result = FinanceModel.update_cash_transaction(voucher_no=self._edit_voucher_no, **payload)
+            else:
+                result = FinanceModel.create_cash_transaction(**payload)
+            self._last_saved = result
+            QMessageBox.information(
+                self,
+                "Başarılı",
+                f"Kasa işlemi kaydedildi.\nFiş: {result.get('voucher_no', '')}\nKalan Bakiye: {float(result.get('balance_after') or 0):,.2f}",
+            )
+            self._edit_voucher_no = None
+            self._refresh_today_transactions()
+            self._update_balance_view()
+            if close_after:
+                self._close_current_tab()
+            else:
+                self._reset_form(keep_party=True)
+            return True
         except Exception as exc:
-            QMessageBox.critical(self, "Error", str(exc))
+            QMessageBox.critical(self, "Hata", f"Kasa işlemi kaydedilemedi:\n{exc}")
+            return False
+
+    def _reset_form(self, keep_party: bool = False) -> None:
+        self._edit_voucher_no = None
+        selected = dict(self._selected_party_data) if keep_party and self._selected_party_data else None
+        self.transaction_date.setDate(QDate.currentDate())
+        self.income_btn.setChecked(True)
+        self.amount_input.clear()
+        if self.cash_combo.count() > 0:
+            self.cash_combo.setCurrentIndex(0)
+        self.currency_combo.setCurrentText("USD")
+        self.description_input.clear()
+        if selected is not None:
+            self._selected_party_data = selected
+            self.customer_code_input.setText(str(selected.get("code") or ""))
+            self.customer_name_input.setText(str(selected.get("name") or ""))
+        else:
+            self._selected_party_data = None
+            self.customer_code_input.clear()
+            self.customer_name_input.clear()
+        self._update_balance_view()
+        self._refresh_today_transactions()
+
+    def eventFilter(self, watched, event):  # noqa: N802
+        if watched in (self.customer_code_input, self.customer_name_input) and event.type() == QEvent.MouseButtonDblClick:
+            self._open_cari_lookup()
+            return True
+        return super().eventFilter(watched, event)
+
+    def keyPressEvent(self, event):  # noqa: N802
+        if event.key() == Qt.Key_F4 and self.focusWidget() in (self.customer_code_input, self.customer_name_input):
+            self._open_cari_lookup()
+            return
+        super().keyPressEvent(event)
+
+    def _close_current_tab(self) -> None:
+        parent = self.parentWidget()
+        while parent is not None:
+            if parent.__class__.__name__ == "TabManager":
+                index = parent.indexOf(self)
+                if index >= 0:
+                    parent.removeTab(index)
+                return
+            parent = parent.parentWidget()
+
+    def closeEvent(self, event):  # noqa: N802
+        FinanceModel.unregister_listener(self._listener)
+        super().closeEvent(event)

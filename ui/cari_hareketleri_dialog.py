@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from models.purchase_invoice_model import PurchaseInvoiceModel
 from models.cari_model import CariModel
+from models.finance_model import FinanceModel
 from services.excel_service import ExcelService
 from services.pdf_service import PDFService
 from services.print_service import PrintService
@@ -50,6 +51,8 @@ class CariHareketleriDialog(QWidget):
         self.selected_supplier_id = 0
         self.settings = QSettings("MeWa", "ERP")
         self._temp_pdf_files = set()
+        self._listener = self._on_finance_changed
+        FinanceModel.register_listener(self._listener)
 
         self.column_labels = [
             "Tarih",
@@ -80,9 +83,9 @@ class CariHareketleriDialog(QWidget):
         search_frame = QFrame()
         search_frame.setStyleSheet("QFrame{background:#0f172a; border:1px solid #334155; border-radius:12px;}")
         search_layout = QGridLayout(search_frame)
-        search_layout.setContentsMargins(14, 12, 14, 12)
+        search_layout.setContentsMargins(10, 8, 10, 8)
         search_layout.setHorizontalSpacing(10)
-        search_layout.setVerticalSpacing(8)
+        search_layout.setVerticalSpacing(6)
 
         self.customer_input = QLineEdit()
         self.customer_input.setReadOnly(True)
@@ -122,7 +125,7 @@ class CariHareketleriDialog(QWidget):
 
         self.start_date = QDateEdit()
         self.start_date.setCalendarPopup(True)
-        first_day = date.today().replace(day=1)
+        first_day = date.today().replace(month=1, day=1)
         self.start_date.setDate(QDate(first_day.year, first_day.month, first_day.day))
 
         self.end_date = QDateEdit()
@@ -138,16 +141,12 @@ class CariHareketleriDialog(QWidget):
         search_layout.addWidget(QLabel("Bitiş Tarihi"), 1, 2)
         search_layout.addWidget(self.end_date, 1, 3)
         search_layout.addWidget(self.load_button, 2, 3)
+        search_frame.setMaximumHeight(138)
 
         main_layout.addWidget(search_frame)
 
-        filter_row = QHBoxLayout()
-        filter_row.addWidget(QLabel("Filtre:"))
         self.grid_filter_input = QLineEdit()
-        self.grid_filter_input.setPlaceholderText("Belge tipi, no, açıklama, durum...")
-        self.grid_filter_input.textChanged.connect(self._filter_grid_rows)
-        filter_row.addWidget(self.grid_filter_input, 1)
-        main_layout.addLayout(filter_row)
+        self.grid_filter_input.setVisible(False)
 
         self.toolbar = QToolBar()
         self.toolbar.setMovable(False)
@@ -205,6 +204,7 @@ class CariHareketleriDialog(QWidget):
         table_page = QWidget()
         table_layout = QVBoxLayout(table_page)
         table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.setSpacing(0)
         table_layout.addWidget(self.table)
 
         self.stack.addWidget(empty_page)
@@ -263,10 +263,12 @@ class CariHareketleriDialog(QWidget):
 
             card_layout.addWidget(value_label)
             card_layout.addWidget(title_label)
-            bottom_layout.addWidget(card)
+            bottom_layout.addWidget(card, 1)
             self.summary_cards[title] = value_label
 
+        bottom_frame.setFixedHeight(110)
         main_layout.addWidget(bottom_frame)
+        main_layout.setStretchFactor(self.stack, 1)
 
         self.start_date.dateChanged.connect(lambda _d: self._load_ledger())
         self.end_date.dateChanged.connect(lambda _d: self._load_ledger())
@@ -312,9 +314,21 @@ class CariHareketleriDialog(QWidget):
             )
 
         current_balance = PurchaseInvoiceModel.current_balance_for_supplier(self.selected_supplier_id)
-        self.current_balance_input.setText(f"{current_balance:,.2f}")
+        self._set_current_balance_display(current_balance, "USD")
         self.action_whatsapp.setEnabled(bool(self.customer_input.text().strip()))
         self._load_ledger()
+
+    def _set_current_balance_display(self, balance: float, currency: str):
+        curr = str(currency or "USD").strip().upper() or "USD"
+        if balance > 0:
+            self.current_balance_input.setText(f"{balance:,.2f} {curr} (ALACAKLIYIZ)")
+            self.current_balance_input.setStyleSheet("color:#16a34a; font-weight:700;")
+        elif balance < 0:
+            self.current_balance_input.setText(f"{abs(balance):,.2f} {curr} (BORÇLUYUZ)")
+            self.current_balance_input.setStyleSheet("color:#dc2626; font-weight:700;")
+        else:
+            self.current_balance_input.setText(f"BAKIYE YOK (0.00 {curr})")
+            self.current_balance_input.setStyleSheet("color:#94a3b8; font-weight:700;")
 
     def _load_ledger(self):
         if self.selected_supplier_id <= 0:
@@ -366,7 +380,7 @@ class CariHareketleriDialog(QWidget):
         self.summary_cards["Toplam Borç"].setText(f"{float(ledger.get('total_debit') or 0):,.2f}")
         self.summary_cards["Toplam Alacak"].setText(f"{float(ledger.get('total_credit') or 0):,.2f}")
         self.summary_cards["Kapanış Bakiye"].setText(f"{float(ledger.get('closing_balance') or 0):,.2f}")
-        self.current_balance_input.setText(f"{PurchaseInvoiceModel.current_balance_for_supplier(self.selected_supplier_id):,.2f}")
+        self._set_current_balance_display(PurchaseInvoiceModel.current_balance_for_supplier(self.selected_supplier_id), "USD")
 
     def _filter_grid_rows(self, text: str):
         token = (text or "").strip().lower()
@@ -379,6 +393,10 @@ class CariHareketleriDialog(QWidget):
                 for col in range(self.table.columnCount())
             ).lower()
             self.table.setRowHidden(row, token not in haystack)
+
+    def _on_finance_changed(self, _event: str):
+        if self.selected_supplier_id > 0:
+            self._load_ledger()
 
     def _show_column_menu(self):
         menu = QMenu(self)
@@ -650,5 +668,6 @@ class CariHareketleriDialog(QWidget):
                 self._temp_pdf_files.discard(path)
 
     def closeEvent(self, event: QCloseEvent):  # noqa: N802
+        FinanceModel.unregister_listener(self._listener)
         self._cleanup_temp_pdfs()
         super().closeEvent(event)
